@@ -5,12 +5,11 @@ use regex::Regex;
 use serenity::client::Context;
 use serenity::model::channel::{Message};
 use serenity::model::interactions::application_command::ApplicationCommandInteraction;
-use serenity::model::user::User;
 use serenity::prelude::TypeMap;
 use serenity::utils::MessageBuilder;
 use tokio::sync::RwLockWriteGuard;
 
-use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer, TeamNameCache, UserQueue};
+use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer};
 use crate::utils::{admin_check, write_to_file};
 
 
@@ -33,19 +32,7 @@ use crate::utils::{admin_check, write_to_file};
 //     }
 // }
 
-pub(crate) async fn handle_clear(context: &Context, msg: &ApplicationCommandInteraction) -> String {
-    let admin_check = admin_check(&context, &msg).await;
-    if let Err(error) = admin_check { return error; }
-    let mut data = context.data.write().await;
-    let user_queue: &mut Vec<User> = &mut data.get_mut::<UserQueue>().unwrap();
-    user_queue.clear();
-    return MessageBuilder::new()
-        .mention(&msg.user)
-        .push(" cleared queue")
-        .build();
-}
-
-pub(crate) async fn handle_help(context: &Context, msg: ApplicationCommandInteraction) -> String {
+pub(crate) async fn handle_help(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     let mut commands = String::from("
 `/riotid` - Set your riotid i.e. `.riotid Martige#NA1`
 `/maps` - Lists all maps available for map vote
@@ -99,7 +86,7 @@ pub(crate) async fn handle_setup(context: &Context, msg: &ApplicationCommandInte
     // }
 }
 
-pub(crate) async fn handle_defense_option(context: &Context, msg: ApplicationCommandInteraction) -> String {
+pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     {
         let mut data: RwLockWriteGuard<TypeMap> = context.data.write().await;
         let bot_state: &mut StateContainer = &mut data.get_mut::<BotState>().unwrap();
@@ -116,7 +103,7 @@ pub(crate) async fn handle_defense_option(context: &Context, msg: ApplicationCom
     }
 }
 
-pub(crate) async fn handle_attack_option(context: &Context, msg: ApplicationCommandInteraction) -> String {
+pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     {
         let mut data = context.data.write().await;
         let bot_state: &mut StateContainer = &mut data.get_mut::<BotState>().unwrap();
@@ -132,7 +119,7 @@ pub(crate) async fn handle_attack_option(context: &Context, msg: ApplicationComm
     }
 }
 
-pub(crate) async fn handle_riotid(context: &Context, msg: ApplicationCommandInteraction) -> String {
+pub(crate) async fn handle_riotid(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     let mut data = context.data.write().await;
     let riot_id_cache: &mut HashMap<u64, String> = &mut data.get_mut::<RiotIdCache>().unwrap();
     // TODO: impl this
@@ -216,7 +203,7 @@ pub(crate) async fn handle_remove_map(context: &Context, msg: &ApplicationComman
         .build();
 }
 
-pub(crate) async fn handle_ready(context: &Context, msg: &Message) {
+pub(crate) async fn handle_ready(context: &Context, _msg: &Message) {
     let mut data = context.data.write().await;
     // reset to Idle state
     let draft: &mut Setup = &mut data.get_mut::<Setup>().unwrap();

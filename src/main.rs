@@ -7,7 +7,7 @@ use serenity::async_trait;
 use serenity::Client;
 use serenity::client::Context;
 use serenity::framework::standard::StandardFramework;
-use serenity::model::prelude::{Interaction, InteractionResponseType, Ready};
+use serenity::model::prelude::{GuildId, Interaction, InteractionResponseType, Ready};
 use serenity::model::prelude::application_command::ApplicationCommandInteraction;
 use serenity::model::user::User;
 use serenity::prelude::{EventHandler, TypeMapKey};
@@ -27,6 +27,7 @@ struct DiscordConfig {
     admin_role_id: Option<u64>,
     channel_id: Option<u64>,
     application_id: u64,
+    guild_id: u64,
 }
 
 #[derive(PartialEq)]
@@ -88,47 +89,10 @@ enum Command {
     REMOVEMAP,
     DEFENSE,
     ATTACK,
-    CLEAR,
     HELP,
-    UNKNOWN,
 }
 
-async fn interaction_create(context: Context, interaction: Interaction) {
-    if let Interaction::ApplicationCommand(inc_command) = interaction {
-        let command = Command::from_str(&inc_command.data.name.as_str().to_lowercase()).expect("Expected valid command");
-        {
-            let data = context.data.write().await;
-            let config: &Config = data.get::<Config>().unwrap();
-            let content = String::from("Please use the assigned channel for bot commands");
-            if &config.discord.channel_id.unwrap() != inc_command.channel_id.as_u64() {
-                if let Err(why) = create_int_resp(&context, &inc_command, content).await {
-                    eprintln!("Cannot respond to slash command: {}", why);
-                }
-            }
-        }
-        let content: String = match command {
-            Command::SETUP => commands::handle_setup(&context, &inc_command).await,
-            Command::MAPS => commands::handle_map_list(&context).await,
-            Command::CANCEL => commands::handle_cancel(&context, &inc_command).await,
-            Command::ADDMAP => commands::handle_add_map(&context, &inc_command).await,
-            Command::REMOVEMAP => commands::handle_remove_map(&context, &inc_command).await,
-            Command::CLEAR => commands::handle_clear(&context, &inc_command).await,
-            _ => {String::from("Unknown command, use `/help` for list of commands.")}
-        };
-        if let Err(why) = create_int_resp(&context, &inc_command, content).await {
-            eprintln!("Cannot respond to slash command: {}", why);
-        }
-    }
-}
 
-async fn create_int_resp(context: &Context, inc_command: &ApplicationCommandInteraction, content: String) -> serenity::Result<()> {
-    return inc_command
-        .create_interaction_response(&context.http, |response| {
-            response
-                .kind(InteractionResponseType::ChannelMessageWithSource)
-                .interaction_response_data(|message| message.content(content))
-        }).await;
-}
 impl FromStr for Command {
     type Err = ();
     fn from_str(input: &str) -> Result<Command, Self::Err> {
@@ -149,9 +113,60 @@ impl FromStr for Command {
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn ready(&self, _context: Context, ready: Ready) {
+    async fn ready(&self, context: Context, ready: Ready) {
+        let config = read_config().await.unwrap();
+        let guild_id = GuildId(config.discord.guild_id);
+        let commands = GuildId::set_application_commands(&guild_id, &context.http, |commands| {
+            return commands
+                .create_application_command(|command| {
+                    command.name("maps").description("Lists the current map pool")
+                })
+                .create_application_command(|command| {
+                    command.name("help").description("DM yourself help info")
+                })
+            ;
+        }).await;
         println!("{} is connected!", ready.user.name);
+        println!("Added these guild slash commands: {:#?}", commands);
     }
+    async fn interaction_create(&self, context: Context, interaction: Interaction) {
+        if let Interaction::ApplicationCommand(inc_command) = interaction {
+            let command = Command::from_str(&inc_command.data.name.as_str().to_lowercase()).expect("Expected valid command");
+            {
+                let data = context.data.write().await;
+                let config: &Config = data.get::<Config>().unwrap();
+                let content = String::from("Please use the assigned channel for bot commands");
+                if &config.discord.channel_id.unwrap() != inc_command.channel_id.as_u64() {
+                    if let Err(why) = create_int_resp(&context, &inc_command, content).await {
+                        eprintln!("Cannot respond to slash command: {}", why);
+                    }
+                }
+            }
+            let content: String = match command {
+                Command::SETUP => commands::handle_setup(&context, &inc_command).await,
+                Command::MAPS => commands::handle_map_list(&context).await,
+                Command::RIOTID => commands::handle_riotid(&context, &inc_command).await,
+                Command::DEFENSE => commands::handle_defense_option(&context, &inc_command).await,
+                Command::ATTACK => commands::handle_attack_option(&context, &inc_command).await,
+                Command::CANCEL => commands::handle_cancel(&context, &inc_command).await,
+                Command::ADDMAP => commands::handle_add_map(&context, &inc_command).await,
+                Command::REMOVEMAP => commands::handle_remove_map(&context, &inc_command).await,
+                Command::HELP => commands::handle_help(&context, &inc_command).await,
+            };
+            if let Err(why) = create_int_resp(&context, &inc_command, content).await {
+                eprintln!("Cannot respond to slash command: {}", why);
+            }
+        }
+    }
+}
+
+async fn create_int_resp(context: &Context, inc_command: &ApplicationCommandInteraction, content: String) -> serenity::Result<()> {
+    return inc_command
+        .create_interaction_response(&context.http, |response| {
+            response
+                .kind(InteractionResponseType::ChannelMessageWithSource)
+                .interaction_response_data(|message| message.content(content))
+        }).await;
 }
 
 #[tokio::main]
