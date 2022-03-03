@@ -26,6 +26,7 @@ struct DiscordConfig {
     token: String,
     admin_role_id: Option<u64>,
     channel_id: Option<u64>,
+    application_id: u64,
 }
 
 #[derive(PartialEq)]
@@ -51,32 +52,18 @@ enum State {
 
 struct Handler;
 
-struct UserQueue;
-
 struct RiotIdCache;
-
-struct TeamNameCache;
-
-struct QueueMessages;
 
 struct BotState;
 
 struct Maps;
 
 
-impl TypeMapKey for UserQueue {
-    type Value = Vec<User>;
-}
-
 impl TypeMapKey for Config {
     type Value = Config;
 }
 
 impl TypeMapKey for RiotIdCache {
-    type Value = HashMap<u64, String>;
-}
-
-impl TypeMapKey for TeamNameCache {
     type Value = HashMap<u64, String>;
 }
 
@@ -90,10 +77,6 @@ impl TypeMapKey for Maps {
 
 impl TypeMapKey for Setup {
     type Value = Setup;
-}
-
-impl TypeMapKey for QueueMessages {
-    type Value = HashMap<u64, String>;
 }
 
 enum Command {
@@ -179,12 +162,11 @@ async fn main() -> () {
     let mut client = Client::builder(&token)
         .event_handler(Handler {})
         .framework(framework)
+        .application_id(config.discord.application_id)
         .await
         .expect("Error creating client");
     {
         let mut data = client.data.write().await;
-        data.insert::<UserQueue>(Vec::new());
-        data.insert::<QueueMessages>(HashMap::new());
         data.insert::<Config>(config);
         data.insert::<RiotIdCache>(read_riot_ids().await.unwrap());
         data.insert::<BotState>(StateContainer { state: State::Idle });
