@@ -1,9 +1,7 @@
-use core::time::Duration as CoreDuration;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use async_std::task;
-use chrono::{Datelike, DateTime, Duration as ChronoDuration, Local, TimeZone};
+
 use serde::{Deserialize, Serialize};
 use serenity::async_trait;
 use serenity::Client;
@@ -14,12 +12,12 @@ use serenity::model::prelude::Ready;
 use serenity::model::user::User;
 use serenity::prelude::{EventHandler, TypeMapKey};
 
-mod bot_service;
+mod commands;
+mod utils;
 
 #[derive(Serialize, Deserialize)]
 struct Config {
     discord: DiscordConfig,
-    autoclear_hour: Option<u32>,
     post_setup_msg: Option<String>,
 }
 
@@ -37,7 +35,7 @@ struct StateContainer {
     state: State,
 }
 
-struct Draft {
+struct Setup {
     captain_a: Option<User>,
     captain_b: Option<User>,
     team_a: Vec<User>,
@@ -48,12 +46,9 @@ struct Draft {
 
 #[derive(PartialEq)]
 enum State {
-    Queue,
-    MapPick,
-    CaptainPick,
-    Draft,
+    Idle,
+    MapVeto,
     SidePick,
-    Ready,
 }
 
 struct Handler;
@@ -95,8 +90,8 @@ impl TypeMapKey for Maps {
     type Value = Vec<String>;
 }
 
-impl TypeMapKey for Draft {
-    type Value = Draft;
+impl TypeMapKey for Setup {
+    type Value = Setup;
 }
 
 impl TypeMapKey for QueueMessages {
@@ -104,19 +99,12 @@ impl TypeMapKey for QueueMessages {
 }
 
 enum Command {
-    JOIN,
-    LEAVE,
-    QUEUE,
-    START,
+    SETUP,
     RIOTID,
     MAPS,
     ADDMAP,
     CANCEL,
     REMOVEMAP,
-    KICK,
-    CAPTAIN,
-    TEAMNAME,
-    PICK,
     DEFENSE,
     ATTACK,
     RECOVERQUEUE,
@@ -130,23 +118,14 @@ impl FromStr for Command {
     fn from_str(input: &str) -> Result<Command, Self::Err> {
         match input {
             "." => Ok(Command::UNKNOWN),
-            _ if ".join".starts_with(input) => Ok(Command::JOIN),
-            _ if ".leave".starts_with(input) => Ok(Command::LEAVE),
-            _ if ".queue".starts_with(input) => Ok(Command::QUEUE),
-            ".start" => Ok(Command::START),
+            ".start" => Ok(Command::SETUP),
             ".riotid" => Ok(Command::RIOTID),
             ".maps" => Ok(Command::MAPS),
-            ".kick" => Ok(Command::KICK),
             ".addmap" => Ok(Command::ADDMAP),
             ".cancel" => Ok(Command::CANCEL),
-            ".captain" => Ok(Command::CAPTAIN),
-            ".teamname" => Ok(Command::TEAMNAME),
-            ".pick" => Ok(Command::PICK),
             ".defense" => Ok(Command::DEFENSE),
             ".attack" => Ok(Command::ATTACK),
             ".removemap" => Ok(Command::REMOVEMAP),
-            ".recoverqueue" => Ok(Command::RECOVERQUEUE),
-            ".clear" => Ok(Command::CLEAR),
             ".help" => Ok(Command::HELP),
             _ => Err(()),
         }
@@ -165,30 +144,22 @@ impl EventHandler for Handler {
             .collect::<Vec<_>>()[0])
             .unwrap_or(Command::UNKNOWN);
         match command {
-            Command::JOIN => bot_service::handle_join(&context, &msg, &msg.author).await,
-            Command::LEAVE => bot_service::handle_leave(context, msg).await,
-            Command::QUEUE => bot_service::handle_list(context, msg).await,
-            Command::START => bot_service::handle_start(context, msg).await,
-            Command::RIOTID => bot_service::handle_riotid(context, msg).await,
-            Command::MAPS => bot_service::handle_map_list(context, msg).await,
-            Command::KICK => bot_service::handle_kick(context, msg).await,
-            Command::CANCEL => bot_service::handle_cancel(context, msg).await,
-            Command::ADDMAP => bot_service::handle_add_map(context, msg).await,
-            Command::REMOVEMAP => bot_service::handle_remove_map(context, msg).await,
-            Command::TEAMNAME => bot_service::handle_teamname(context, msg).await,
-            Command::CAPTAIN => bot_service::handle_captain(context, msg).await,
-            Command::PICK => bot_service::handle_pick(context, msg).await,
-            Command::DEFENSE => bot_service::handle_defense_option(context, msg).await,
-            Command::ATTACK => bot_service::handle_attack_option(context, msg).await,
-            Command::RECOVERQUEUE => bot_service::handle_recover_queue(context, msg).await,
-            Command::CLEAR => bot_service::handle_clear(context, msg).await,
-            Command::HELP => bot_service::handle_help(context, msg).await,
-            Command::UNKNOWN => bot_service::handle_unknown(context, msg).await,
+            Command::SETUP => commands::handle_start(context, msg).await,
+            Command::RIOTID => commands::handle_riotid(context, msg).await,
+            Command::MAPS => commands::handle_map_list(context, msg).await,
+            Command::CANCEL => commands::handle_cancel(context, msg).await,
+            Command::ADDMAP => commands::handle_add_map(context, msg).await,
+            Command::REMOVEMAP => commands::handle_remove_map(context, msg).await,
+            Command::DEFENSE => commands::handle_defense_option(context, msg).await,
+            Command::ATTACK => commands::handle_attack_option(context, msg).await,
+            Command::RECOVERQUEUE => commands::handle_recover_queue(context, msg).await,
+            Command::CLEAR => commands::handle_clear(context, msg).await,
+            Command::HELP => commands::handle_help(context, msg).await,
+            Command::UNKNOWN => commands::handle_unknown(context, msg).await,
         }
     }
-    async fn ready(&self, context: Context, ready: Ready) {
+    async fn ready(&self, _context: Context, ready: Ready) {
         println!("{} is connected!", ready.user.name);
-        autoclear_queue(&context).await;
     }
 }
 
@@ -208,10 +179,9 @@ async fn main() -> () {
         data.insert::<QueueMessages>(HashMap::new());
         data.insert::<Config>(config);
         data.insert::<RiotIdCache>(read_riot_ids().await.unwrap());
-        data.insert::<TeamNameCache>(read_teamnames().await.unwrap());
-        data.insert::<BotState>(StateContainer { state: State::Queue });
+        data.insert::<BotState>(StateContainer { state: State::Idle });
         data.insert::<Maps>(read_maps().await.unwrap());
-        data.insert::<Draft>(Draft {
+        data.insert::<Setup>(Setup {
             captain_a: None,
             captain_b: None,
             current_picker: None,
@@ -241,16 +211,6 @@ async fn read_riot_ids() -> Result<HashMap<u64, String>, serde_json::Error> {
     }
 }
 
-async fn read_teamnames() -> Result<HashMap<u64, String>, serde_json::Error> {
-    if std::fs::read("teamnames.json").is_ok() {
-        let json_str = std::fs::read_to_string("teamnames.json").unwrap();
-        let json = serde_json::from_str(&json_str).unwrap();
-        Ok(json)
-    } else {
-        Ok(HashMap::new())
-    }
-}
-
 async fn read_maps() -> Result<Vec<String>, serde_json::Error> {
     if std::fs::read("maps.json").is_ok() {
         let json_str = std::fs::read_to_string("maps.json").unwrap();
@@ -261,30 +221,4 @@ async fn read_maps() -> Result<Vec<String>, serde_json::Error> {
     }
 }
 
-async fn autoclear_queue(context: &Context) {
-    let autoclear_hour_prop = get_autoclear_hour(context).await;
-    if let Some(autoclear_hour) = autoclear_hour_prop {
-        println!("Autoclear feature started");
-        loop {
-            let current: DateTime<Local> = Local::now();
-            let mut autoclear: DateTime<Local> = Local.ymd(current.year(), current.month(), current.day())
-                .and_hms(autoclear_hour, 0, 0);
-            if autoclear.signed_duration_since(current).num_milliseconds() < 0 { autoclear = autoclear + ChronoDuration::days(1) }
-            let time_between: ChronoDuration = autoclear.signed_duration_since(current);
-            task::sleep(CoreDuration::from_millis(time_between.num_milliseconds() as u64)).await;
-            {
-                let mut data = context.data.write().await;
-                let user_queue: &mut Vec<User> = &mut data.get_mut::<UserQueue>().unwrap();
-                user_queue.clear();
-                let queued_msgs: &mut HashMap<u64, String> = data.get_mut::<QueueMessages>().unwrap();
-                queued_msgs.clear();
-            }
-        }
-    }
-}
 
-async fn get_autoclear_hour(client: &Context) -> Option<u32> {
-    let data = client.data.write().await;
-    let config: &Config = &data.get::<Config>().unwrap();
-    config.autoclear_hour
-}
