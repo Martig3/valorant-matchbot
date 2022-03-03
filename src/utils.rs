@@ -1,54 +1,34 @@
 use std::collections::HashMap;
 use serenity::model::prelude::{GuildContainer, Message, RoleId, User};
+use serenity::model::prelude::application_command::ApplicationCommandInteraction;
 use serenity::prelude::Context;
 use serenity::utils::MessageBuilder;
 use crate::Config;
 
-pub(crate) async fn send_simple_msg(context: &Context, msg: &Message, text: &str) {
-    let response = MessageBuilder::new()
-        .push(text)
-        .build();
-    if let Err(why) = msg.channel_id.say(&context.http, &response).await {
-        eprintln!("Error sending message: {:?}", why);
-    }
+pub(crate) async fn write_to_file(path: String, content: String) {
+    let mut error_string = String::from("Error writing to ");
+    error_string.push_str(&path);
+    std::fs::write(path, content)
+        .expect(&error_string);
 }
 
-pub(crate) async fn send_simple_tagged_msg(context: &Context, msg: &Message, text: &str, mentioned: &User) -> Option<Message> {
-    let response = MessageBuilder::new()
-        .mention(mentioned)
-        .push(text)
-        .build();
-    if let Ok(m) = msg.channel_id.say(&context.http, &response).await {
-        Some(m)
-    } else {
-        eprintln!("Error sending message");
-        None
-    }
-}
-
-pub(crate) async fn admin_check(context: &Context, msg: &Message, print_msg: bool) -> bool {
+pub(crate) async fn admin_check(context: &Context, inc_command: &ApplicationCommandInteraction) -> Result<String, String> {
     let data = context.data.write().await;
     let config: &Config = data.get::<Config>().unwrap();
     if let Some(admin_role_id) = &config.discord.admin_role_id {
-        let role_name = context.cache.role(msg.guild_id.unwrap(), RoleId::from(*admin_role_id)).await.unwrap().name;
-        return if msg.author.has_role(&context.http, GuildContainer::from(msg.guild_id.unwrap()), RoleId::from(*admin_role_id)).await.unwrap_or_else(|_| false) {
-            true
+        let role_name = context.cache.role(inc_command.guild_id.unwrap(), RoleId::from(*admin_role_id)).await.unwrap().name;
+        return if inc_command.user.has_role(&context.http, GuildContainer::from(inc_command.guild_id.unwrap()), RoleId::from(*admin_role_id)).await.unwrap_or_else(|_| false) {
+            Ok(String::from("User has role"))
         } else {
-            if print_msg {
-                let response = MessageBuilder::new()
-                    .mention(&msg.author)
-                    .push(" this command requires the '")
-                    .push(role_name)
-                    .push("' role.")
-                    .build();
-                if let Err(why) = msg.channel_id.say(&context.http, &response).await {
-                    eprintln!("Error sending message: {:?}", why);
-                }
-            }
-            false
+            Err(MessageBuilder::new()
+                .mention(&inc_command.user)
+                .push(" this command requires the '")
+                .push(role_name)
+                .push("' role.")
+                .build())
         };
     }
-    true
+    Ok(String::from("Admin Role not set, allowed"))
 }
 
 pub(crate) async fn populate_unicode_emojis() -> HashMap<char, String> {
