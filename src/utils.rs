@@ -5,7 +5,7 @@ use serenity::prelude::Context;
 use serenity::utils::MessageBuilder;
 use crate::Config;
 
-pub(crate) async fn write_to_file(path: String, content: String) {
+pub(crate) async fn write_to_file(path: &str, content: String) {
     let mut error_string = String::from("Error writing to ");
     error_string.push_str(&path);
     std::fs::write(path, content)

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
+use chrono::{Date, DateTime, Utc};
 
 
 use serde::{Deserialize, Serialize};
@@ -7,10 +8,12 @@ use serenity::async_trait;
 use serenity::Client;
 use serenity::client::Context;
 use serenity::framework::standard::StandardFramework;
+use serenity::model::guild::Role;
 use serenity::model::prelude::{GuildId, Interaction, InteractionResponseType, Ready};
-use serenity::model::prelude::application_command::ApplicationCommandInteraction;
+use serenity::model::prelude::application_command::{ApplicationCommandInteraction, ApplicationCommandOptionType};
 use serenity::model::user::User;
 use serenity::prelude::{EventHandler, TypeMapKey};
+use uuid::Uuid;
 
 mod commands;
 mod utils;
@@ -35,13 +38,48 @@ struct StateContainer {
     state: State,
 }
 
+#[derive(Serialize, Deserialize)]
+struct SeriesMap {
+    map: String,
+    picked_by: Role,
+    start_attack: Role,
+    start_defense: Role,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Veto {
+    map: String,
+    vetoed_by: Role,
+}
+
+#[derive(Serialize, Deserialize)]
+enum MatchState {
+    Entered,
+    Scheduled,
+    Completed,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Match {
+    id: Uuid,
+    team_one: Option<Role>,
+    team_two: Option<Role>,
+    note: Option<String>,
+    date_added: DateTime<Utc>,
+    match_state: MatchState,
+}
+
+#[derive(Serialize, Deserialize)]
 struct Setup {
     captain_a: Option<User>,
     captain_b: Option<User>,
-    team_a: Vec<User>,
-    team_b: Vec<User>,
-    team_b_start_side: String,
+    team_a: Option<Role>,
+    team_b: Option<Role>,
     current_picker: Option<User>,
+    current_vetoer: Option<User>,
+    maps_remaining: Vec<String>,
+    maps: Vec<SeriesMap>,
+    vetos: Vec<Veto>,
 }
 
 #[derive(PartialEq)]
@@ -58,6 +96,8 @@ struct RiotIdCache;
 struct BotState;
 
 struct Maps;
+
+struct Matches;
 
 
 impl TypeMapKey for Config {
@@ -80,16 +120,22 @@ impl TypeMapKey for Setup {
     type Value = Setup;
 }
 
+impl TypeMapKey for Matches {
+    type Value = Vec<Match>;
+}
+
 enum Command {
-    SETUP,
-    RIOTID,
-    MAPS,
-    ADDMAP,
-    CANCEL,
-    REMOVEMAP,
-    DEFENSE,
-    ATTACK,
-    HELP,
+    Setup,
+    Schedule,
+    Addmatch,
+    RiotID,
+    Maps,
+    Addmap,
+    Cancel,
+    Removemap,
+    Defense,
+    Attack,
+    Help,
 }
 
 
@@ -97,15 +143,17 @@ impl FromStr for Command {
     type Err = ();
     fn from_str(input: &str) -> Result<Command, Self::Err> {
         match input {
-            "start" => Ok(Command::SETUP),
-            "riotid" => Ok(Command::RIOTID),
-            "maps" => Ok(Command::MAPS),
-            "addmap" => Ok(Command::ADDMAP),
-            "cancel" => Ok(Command::CANCEL),
-            "defense" => Ok(Command::DEFENSE),
-            "attack" => Ok(Command::ATTACK),
-            "removemap" => Ok(Command::REMOVEMAP),
-            "help" => Ok(Command::HELP),
+            "start" => Ok(Command::Setup),
+            "schedule" => Ok(Command::Schedule),
+            "addmatch" => Ok(Command::Addmatch),
+            "riotid" => Ok(Command::RiotID),
+            "maps" => Ok(Command::Maps),
+            "addmap" => Ok(Command::Addmap),
+            "cancel" => Ok(Command::Cancel),
+            "defense" => Ok(Command::Defense),
+            "attack" => Ok(Command::Attack),
+            "removemap" => Ok(Command::Removemap),
+            "help" => Ok(Command::Help),
             _ => Err(()),
         }
     }
@@ -123,6 +171,69 @@ impl EventHandler for Handler {
                 })
                 .create_application_command(|command| {
                     command.name("help").description("DM yourself help info")
+                })
+                .create_application_command(|command| {
+                    command.name("riotid").description("Set your Riot ID").create_option(|option| {
+                        option
+                            .name("riotid")
+                            .description("Your Riot ID, i.e. Martige#0123")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("addmap").description("Add a map to map pool").create_option(|option| {
+                        option
+                            .name("mapname")
+                            .description("Map Name")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("removemap").description("Remove a map in the map pool").create_option(|option| {
+                        option
+                            .name("mapname")
+                            .description("Map Name")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("addmatch").description("Add match to schedule (admin required)").create_option(|option| {
+                        option
+                            .name("teamone")
+                            .description("Team 1 (Home)")
+                            .kind(ApplicationCommandOptionType::Role)
+                            .required(true)
+                    }).create_option(|option| {
+                        option
+                            .name("teamtwo")
+                            .description("Team 2 (Away)")
+                            .kind(ApplicationCommandOptionType::Role)
+                            .required(true)
+                    }).create_option(|option| {
+                        option
+                            .name("note")
+                            .description("Note")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(false)
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("schedule").description("Schedule your next match").create_option(|option| {
+                        option
+                            .name("date")
+                            .description("Date (MM/DD/YYYY)")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                    }).create_option(|option| {
+                        option
+                            .name("time")
+                            .description("Time (include timezone) i.e. 10EST")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(false)
+                    })
                 })
             ;
         }).await;
@@ -143,15 +254,17 @@ impl EventHandler for Handler {
                 }
             }
             let content: String = match command {
-                Command::SETUP => commands::handle_setup(&context, &inc_command).await,
-                Command::MAPS => commands::handle_map_list(&context).await,
-                Command::RIOTID => commands::handle_riotid(&context, &inc_command).await,
-                Command::DEFENSE => commands::handle_defense_option(&context, &inc_command).await,
-                Command::ATTACK => commands::handle_attack_option(&context, &inc_command).await,
-                Command::CANCEL => commands::handle_cancel(&context, &inc_command).await,
-                Command::ADDMAP => commands::handle_add_map(&context, &inc_command).await,
-                Command::REMOVEMAP => commands::handle_remove_map(&context, &inc_command).await,
-                Command::HELP => commands::handle_help(&context, &inc_command).await,
+                Command::Setup => commands::handle_setup(&context, &inc_command).await,
+                Command::Addmatch => commands::handle_add_match(&context, &inc_command).await,
+                Command::Schedule => commands::handle_schedule(&context, &inc_command).await,
+                Command::Maps => commands::handle_map_list(&context).await,
+                Command::RiotID => commands::handle_riotid(&context, &inc_command).await,
+                Command::Defense => commands::handle_defense_option(&context, &inc_command).await,
+                Command::Attack => commands::handle_attack_option(&context, &inc_command).await,
+                Command::Cancel => commands::handle_cancel(&context, &inc_command).await,
+                Command::Addmap => commands::handle_add_map(&context, &inc_command).await,
+                Command::Removemap => commands::handle_remove_map(&context, &inc_command).await,
+                Command::Help => commands::handle_help(&context, &inc_command).await,
             };
             if let Err(why) = create_int_resp(&context, &inc_command, content).await {
                 eprintln!("Cannot respond to slash command: {}", why);
@@ -170,7 +283,7 @@ async fn create_int_resp(context: &Context, inc_command: &ApplicationCommandInte
 }
 
 #[tokio::main]
-async fn main() -> () {
+async fn main() {
     let config = read_config().await.unwrap();
     let token = &config.discord.token;
     let framework = StandardFramework::new();
@@ -186,13 +299,17 @@ async fn main() -> () {
         data.insert::<RiotIdCache>(read_riot_ids().await.unwrap());
         data.insert::<BotState>(StateContainer { state: State::Idle });
         data.insert::<Maps>(read_maps().await.unwrap());
+        data.insert::<Matches>(Vec::new());
         data.insert::<Setup>(Setup {
             captain_a: None,
             captain_b: None,
             current_picker: None,
-            team_a: Vec::new(),
-            team_b: Vec::new(),
-            team_b_start_side: String::from(""),
+            current_vetoer: None,
+            team_a: None,
+            team_b: None,
+            maps: Vec::new(),
+            vetos: Vec::new(),
+            maps_remaining: Vec::new(),
         });
     }
     if let Err(why) = client.start().await {
