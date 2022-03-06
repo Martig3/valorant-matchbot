@@ -128,6 +128,7 @@ enum Command {
     Setup,
     Schedule,
     Addmatch,
+    Matches,
     RiotID,
     Maps,
     Cancel,
@@ -144,6 +145,7 @@ impl FromStr for Command {
             "start" => Ok(Command::Setup),
             "schedule" => Ok(Command::Schedule),
             "addmatch" => Ok(Command::Addmatch),
+            "matches" => Ok(Command::Matches),
             "riotid" => Ok(Command::RiotID),
             "maps" => Ok(Command::Maps),
             "cancel" => Ok(Command::Cancel),
@@ -167,6 +169,9 @@ impl EventHandler for Handler {
                 })
                 .create_application_command(|command| {
                     command.name("help").description("DM yourself help info")
+                })
+                .create_application_command(|command| {
+                    command.name("matches").description("Show matches")
                 })
                 .create_application_command(|command| {
                     command.name("riotid").description("Set your Riot ID").create_option(|option| {
@@ -235,6 +240,7 @@ impl EventHandler for Handler {
                 Command::Setup => commands::handle_setup(&context, &inc_command).await,
                 Command::Addmatch => commands::handle_add_match(&context, &inc_command).await,
                 Command::Schedule => commands::handle_schedule(&context, &inc_command).await,
+                Command::Matches => commands::handle_matches(&context, &inc_command).await,
                 Command::Maps => commands::handle_map_list(&context).await,
                 Command::RiotID => commands::handle_riotid(&context, &inc_command).await,
                 Command::Defense => commands::handle_defense_option(&context, &inc_command).await,
@@ -275,7 +281,7 @@ async fn main() {
         data.insert::<RiotIdCache>(read_riot_ids().await.unwrap());
         data.insert::<BotState>(StateContainer { state: State::Idle });
         data.insert::<Maps>(read_maps().await.unwrap());
-        data.insert::<Matches>(Vec::new());
+        data.insert::<Matches>(read_matches().await.unwrap());
         data.insert::<Setup>(Setup {
             captain_a: None,
             captain_b: None,
@@ -312,6 +318,16 @@ async fn read_riot_ids() -> Result<HashMap<u64, String>, serde_json::Error> {
 async fn read_maps() -> Result<Vec<String>, serde_json::Error> {
     if std::fs::read("maps.json").is_ok() {
         let json_str = std::fs::read_to_string("maps.json").unwrap();
+        let json = serde_json::from_str(&json_str).unwrap();
+        Ok(json)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+async fn read_matches() -> Result<Vec<Match>, serde_json::Error> {
+    if std::fs::read("matches.json").is_ok() {
+        let json_str = std::fs::read_to_string("matches.json").unwrap();
         let json = serde_json::from_str(&json_str).unwrap();
         Ok(json)
     } else {

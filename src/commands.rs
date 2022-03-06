@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::ops::Deref;
 use chrono::{Date, DateTime, Utc};
@@ -158,6 +159,26 @@ pub(crate) async fn handle_map_list(context: &Context) -> String {
 
 pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     String::from("")
+}
+
+pub(crate) async fn handle_matches(context: &Context, msg: &ApplicationCommandInteraction) -> String {
+    let data = context.data.write().await;
+    let matches: &Vec<Match> = data.get::<Matches>().unwrap();
+    if matches.is_empty() {
+        return String::from("No matches have been added");
+    }
+    let matches_str: String = matches.iter()
+        .map(|m| {
+            if m.note.is_some() {
+                let row = format!("- {} vs {} `{}`\n", m.team_one.clone().unwrap().name, m.team_two.clone().unwrap().name, m.note.clone().unwrap());
+                row
+            } else {
+                let row = format!("- {} vs {} \n", m.team_one.clone().unwrap().name, m.team_two.clone().unwrap().name);
+                row
+            }
+        })
+        .collect();
+    matches_str
 }
 
 pub(crate) async fn handle_add_match(context: &Context, msg: &ApplicationCommandInteraction) -> String {
