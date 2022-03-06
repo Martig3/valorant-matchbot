@@ -130,9 +130,7 @@ enum Command {
     Addmatch,
     RiotID,
     Maps,
-    Addmap,
     Cancel,
-    Removemap,
     Defense,
     Attack,
     Help,
@@ -148,11 +146,9 @@ impl FromStr for Command {
             "addmatch" => Ok(Command::Addmatch),
             "riotid" => Ok(Command::RiotID),
             "maps" => Ok(Command::Maps),
-            "addmap" => Ok(Command::Addmap),
             "cancel" => Ok(Command::Cancel),
             "defense" => Ok(Command::Defense),
             "attack" => Ok(Command::Attack),
-            "removemap" => Ok(Command::Removemap),
             "help" => Ok(Command::Help),
             _ => Err(()),
         }
@@ -177,24 +173,6 @@ impl EventHandler for Handler {
                         option
                             .name("riotid")
                             .description("Your Riot ID, i.e. Martige#0123")
-                            .kind(ApplicationCommandOptionType::String)
-                            .required(true)
-                    })
-                })
-                .create_application_command(|command| {
-                    command.name("addmap").description("Add a map to map pool").create_option(|option| {
-                        option
-                            .name("mapname")
-                            .description("Map Name")
-                            .kind(ApplicationCommandOptionType::String)
-                            .required(true)
-                    })
-                })
-                .create_application_command(|command| {
-                    command.name("removemap").description("Remove a map in the map pool").create_option(|option| {
-                        option
-                            .name("mapname")
-                            .description("Map Name")
                             .kind(ApplicationCommandOptionType::String)
                             .required(true)
                     })
@@ -262,8 +240,6 @@ impl EventHandler for Handler {
                 Command::Defense => commands::handle_defense_option(&context, &inc_command).await,
                 Command::Attack => commands::handle_attack_option(&context, &inc_command).await,
                 Command::Cancel => commands::handle_cancel(&context, &inc_command).await,
-                Command::Addmap => commands::handle_add_map(&context, &inc_command).await,
-                Command::Removemap => commands::handle_remove_map(&context, &inc_command).await,
                 Command::Help => commands::handle_help(&context, &inc_command).await,
             };
             if let Err(why) = create_int_resp(&context, &inc_command, content).await {
