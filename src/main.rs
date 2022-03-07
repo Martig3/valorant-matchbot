@@ -52,7 +52,7 @@ struct Veto {
     vetoed_by: Role,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 enum MatchState {
     Entered,
     Scheduled,
@@ -221,7 +221,7 @@ impl EventHandler for Handler {
                     command.name("schedule").description("Schedule your next match").create_option(|option| {
                         option
                             .name("date")
-                            .description("Date (MM/DD/YYYY)")
+                            .description("Date (Month/Day/Year)")
                             .kind(ApplicationCommandOptionType::String)
                             .required(true)
                     }).create_option(|option| {

@@ -183,7 +183,7 @@ pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandI
         if let Ok(date_result) = NaiveDate::parse_from_str(date_str, "%m/%d/%Y") {
             date = Some(date_result);
         } else {
-            return String::from("Incorrect date format. Please use correct format (MM/DD/YYYY) i.e. `12/23/2022`");
+            return String::from("Incorrect date format. Please use correct format (Month/Day/Year) i.e. `12/23/2022`");
         }
     }
     if let ApplicationCommandInteractionDataOptionValue::String(time_str) = option_two {
@@ -221,6 +221,7 @@ pub(crate) async fn handle_matches(context: &Context, _msg: &ApplicationCommandI
         return String::from("No matches have been added");
     }
     let matches_str: String = matches.iter()
+        .filter(|m| m.match_state != MatchState::Completed)
         .map(|m| {
             let mut schedule_str = String::new();
             if let Some(schedule) = &m.schedule_info {
