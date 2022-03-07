@@ -201,11 +201,14 @@ pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandI
         if let Some(team_role) = user_team_role {
             let mut data = context.data.write().await;
             let matches: &mut Vec<Match> = data.get_mut::<Matches>().unwrap();
-            for m in matches {
+            let mut resp_str = String::new();
+            for m in matches.iter_mut() {
                 if m.team_one.id != team_role.id && m.team_two.id != team_role.id { continue; }
                 m.schedule_info = Some(ScheduleInfo { date: date.unwrap(), time_str: time.clone().unwrap() });
-                return format!("Your next match ({} vs {}) is now scheduled for `{} @ {}`", m.team_one.name, m.team_two.name, &match_date_str, time.clone().unwrap());
+                resp_str = format!("Your next match ({} vs {}) is now scheduled for `{} @ {}`", m.team_one.name, m.team_two.name, &match_date_str, time.clone().unwrap());
             }
+            write_to_file("matches.json", serde_json::to_string(matches).unwrap()).await;
+            return resp_str;
         }
     }
     String::from("You are not part of any team. Verify you have a role starting with `Team `")
@@ -219,11 +222,15 @@ pub(crate) async fn handle_matches(context: &Context, _msg: &ApplicationCommandI
     }
     let matches_str: String = matches.iter()
         .map(|m| {
+            let mut schedule_str = String::new();
+            if let Some(schedule) = &m.schedule_info {
+                schedule_str = format!(" > Scheduled: `{} @ {}`", schedule.date.format("%m/%d/%Y").to_string().as_str(), schedule.time_str.as_str());
+            }
             if m.note.is_some() {
-                let row = format!("- {} vs {} `{}`\n", m.team_one.name, m.team_two.name, m.note.clone().unwrap());
+                let row = format!("- {} vs {} `{}` {}\n", m.team_one.name, m.team_two.name, m.note.clone().unwrap(), schedule_str);
                 row
             } else {
-                let row = format!("- {} vs {} \n", m.team_one.name, m.team_two.name);
+                let row = format!("- {} vs {} {}\n", m.team_one.name, m.team_two.name, schedule_str);
                 row
             }
         })
