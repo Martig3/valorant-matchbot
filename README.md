@@ -1,6 +1,6 @@
 # valorant-matchbot
 
-Simple Discord bot for managing & organizing a queue for 10 man scrims in Valorant
+Simple Discord bot for managing & organizing team matches
 
 ## Features
 // TODO
@@ -13,7 +13,7 @@ No CI/CD yet so clone the repo, create a `config.yaml` file (see example below) 
 ### Example config.yaml
 
 ```yaml
-post-setup-msg: GLHF! Add any string here -- optional
+post-setup-_msg: GLHF! Add any string here -- optional
 discord:
   token: <your discord bot api token>
   admin_role_id: <a discord server role id> -- optional, but highly recommended!!!
