@@ -142,6 +142,7 @@ enum Command {
     Setup,
     Schedule,
     Addmatch,
+    Deletematch,
     Matches,
     RiotID,
     Maps,
@@ -159,6 +160,7 @@ impl FromStr for Command {
             "start" => Ok(Command::Setup),
             "schedule" => Ok(Command::Schedule),
             "addmatch" => Ok(Command::Addmatch),
+            "deletematch" => Ok(Command::Deletematch),
             "matches" => Ok(Command::Matches),
             "riotid" => Ok(Command::RiotID),
             "maps" => Ok(Command::Maps),
@@ -191,6 +193,15 @@ impl EventHandler for Handler {
                             .description("Display match IDs")
                             .kind(ApplicationCommandOptionType::Boolean)
                             .required(false)
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("deletematch").description("Delete match (admin required)").create_option(|option| {
+                        option
+                            .name("matchid")
+                            .description("Match ID")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
                     })
                 })
                 .create_application_command(|command| {
@@ -259,6 +270,7 @@ impl EventHandler for Handler {
             let content: String = match command {
                 Command::Setup => commands::handle_setup(&context, &inc_command).await,
                 Command::Addmatch => commands::handle_add_match(&context, &inc_command).await,
+                Command::Deletematch => commands::handle_delete_match(&context, &inc_command).await,
                 Command::Schedule => commands::handle_schedule(&context, &inc_command).await,
                 Command::Matches => commands::handle_matches(&context, &inc_command).await,
                 Command::Maps => commands::handle_map_list(&context).await,

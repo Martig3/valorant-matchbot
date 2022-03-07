@@ -234,15 +234,15 @@ pub(crate) async fn handle_matches(context: &Context, msg: &ApplicationCommandIn
             if let Some(schedule) = &m.schedule_info {
                 schedule_str = format!(" > Scheduled: `{} @ {}`", schedule.date.format("%m/%d/%Y").to_string().as_str(), schedule.time_str.as_str());
             }
-            let mut row= String::new();
+            let mut row = String::new();
             if m.note.is_some() {
                 row.push_str(format!("- {} vs {} `{}` {}\n", m.team_one.name, m.team_two.name, m.note.clone().unwrap(), schedule_str).as_str());
             } else {
                 row.push_str(format!("- {} vs {} {}\n", m.team_one.name, m.team_two.name, schedule_str).as_str());
             }
             if let Some(option) = option_one {
-                if let Some(ApplicationCommandInteractionDataOptionValue::Boolean(display)) = &option.resolved{
-                    if *display {row.push_str(format!("    Match ID: `{}`\n", m.id).as_str())}
+                if let Some(ApplicationCommandInteractionDataOptionValue::Boolean(display)) = &option.resolved {
+                    if *display { row.push_str(format!("    Match ID: `{}`\n", m.id).as_str()) }
                 }
             }
             row
@@ -252,6 +252,8 @@ pub(crate) async fn handle_matches(context: &Context, msg: &ApplicationCommandIn
 }
 
 pub(crate) async fn handle_add_match(context: &Context, msg: &ApplicationCommandInteraction) -> String {
+    let admin_check = admin_check(context, msg).await;
+    if let Err(error) = admin_check { return error; }
     let option_one = msg.data
         .options
         .get(0)
@@ -288,6 +290,36 @@ pub(crate) async fn handle_add_match(context: &Context, msg: &ApplicationCommand
     matches.push(new_match);
     write_to_file("matches.json", serde_json::to_string_pretty(matches).unwrap()).await;
     String::from("Successfully added new match")
+}
+
+pub(crate) async fn handle_delete_match(context: &Context, msg: &ApplicationCommandInteraction) -> String {
+    let admin_check = admin_check(context, msg).await;
+    if let Err(error) = admin_check { return error; }
+    let option_one = msg.data
+        .options
+        .get(0)
+        .expect("Expected matchid option")
+        .resolved
+        .as_ref()
+        .expect("Expected object");
+    let mut parsed_match_id: Option<Uuid> = None;
+    if let ApplicationCommandInteractionDataOptionValue::String(match_id) = option_one {
+        if let Ok(id) = Uuid::from_str(match_id) {
+            parsed_match_id = Some(id);
+        } else {
+            return String::from("Unable to parse match ID");
+        }
+    }
+    let mut data = context.data.write().await;
+    let matches: &mut Vec<Match> = data.get_mut::<Matches>().unwrap();
+    let match_index = matches.iter().position(|m| m.id == parsed_match_id.unwrap());
+    if let Some(index) = match_index {
+        matches.remove(index);
+    } else {
+        return String::from("Could not find match");
+    }
+    write_to_file("matches.json", serde_json::to_string_pretty(matches).unwrap()).await;
+    String::from("Successfully deleted match")
 }
 
 pub(crate) async fn handle_ready(context: &Context, _msg: &Message) {
