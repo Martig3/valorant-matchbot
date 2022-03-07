@@ -206,7 +206,7 @@ pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandI
             for m in matches.iter_mut() {
                 if m.team_one.id != team_role.id && m.team_two.id != team_role.id { continue; }
                 m.schedule_info = Some(ScheduleInfo { date: date.unwrap(), time_str: time.clone().unwrap() });
-                resp_str = format!("Your next match ({} vs {}) is now scheduled for `{} @ {}`", m.team_one.name, m.team_two.name, &match_date_str, time.clone().unwrap());
+                resp_str = format!("Your next match (<@&{}> vs <@&{}>) is scheduled for `{} @ {}`", m.team_one.id.as_u64(), m.team_two.id.as_u64(), &match_date_str, time.clone().unwrap());
             }
             write_to_file("matches.json", serde_json::to_string(matches).unwrap()).await;
             if !resp_str.is_empty() {
