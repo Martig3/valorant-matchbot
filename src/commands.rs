@@ -193,7 +193,8 @@ pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandI
         let team_roles: Vec<Role> = roles.into_iter().filter(|r| r.name.starts_with("Team")).collect();
         let mut user_team_role: Option<Role> = None;
         for team_role in team_roles {
-            if let Ok(_has_role) = msg.user.has_role(&context.http, team_role.guild_id, team_role.id).await {
+            if let Ok(has_role) = msg.user.has_role(&context.http, team_role.guild_id, team_role.id).await {
+                if !has_role { continue; }
                 user_team_role = Some(team_role);
                 break;
             }
@@ -208,10 +209,13 @@ pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandI
                 resp_str = format!("Your next match ({} vs {}) is now scheduled for `{} @ {}`", m.team_one.name, m.team_two.name, &match_date_str, time.clone().unwrap());
             }
             write_to_file("matches.json", serde_json::to_string(matches).unwrap()).await;
-            return resp_str;
+            if !resp_str.is_empty() {
+                return resp_str;
+            }
+            return String::from("Your team does not have any scheduled matches");
         }
     }
-    String::from("You are not part of any team. Verify you have a role starting with `Team `")
+    String::from("You are not part of any team. Verify you have a role starting with `Team`")
 }
 
 pub(crate) async fn handle_matches(context: &Context, _msg: &ApplicationCommandInteraction) -> String {
