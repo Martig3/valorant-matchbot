@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::ops::{Deref, Index};
 use std::str::FromStr;
-use chrono::{Date, DateTime, Utc};
+use chrono::{Date, DateTime, NaiveDate, Utc};
 use rand::distributions::uniform::SampleBorrow;
 
 
@@ -175,11 +175,13 @@ pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandI
         .resolved
         .as_ref()
         .expect("Expected object");
-    let mut date: Option<DateTime<Utc>> = None;
+    let mut date: Option<NaiveDate> = None;
+    let mut match_date_str = String::from("");
     let mut time: Option<String> = None;
     if let ApplicationCommandInteractionDataOptionValue::String(date_str) = option_one {
-        if let Ok(date_result) = DateTime::parse_from_str(date_str, "MM/DD/yyyy") {
-            date = Some(DateTime::from(date_result));
+        match_date_str = String::from(date_str);
+        if let Ok(date_result) = NaiveDate::parse_from_str(date_str, "%m/%d/%Y") {
+            date = Some(date_result);
         } else {
             return String::from("Incorrect date format. Please use correct format (MM/DD/YYYY) i.e. `12/23/2022`");
         }
@@ -202,7 +204,7 @@ pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandI
             for m in matches {
                 if m.team_one.id != team_role.id && m.team_two.id != team_role.id { continue; }
                 m.schedule_info = Some(ScheduleInfo { date: date.unwrap(), time_str: time.clone().unwrap() });
-                return format!("Your next match ({} vs {}) is now scheduled", m.team_one.name, m.team_two.name);
+                return format!("Your next match ({} vs {}) is now scheduled for `{} @ {}`", m.team_one.name, m.team_two.name, &match_date_str, time.clone().unwrap());
             }
         }
     }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
-use chrono::{Date, DateTime, Utc};
+use chrono::{Date, DateTime, NaiveDate, Utc};
 
 
 use serde::{Deserialize, Serialize};
@@ -68,7 +68,7 @@ struct RolePartial {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct ScheduleInfo {
-    date: DateTime<Utc>,
+    date: NaiveDate,
     time_str: String,
 }
 
