@@ -185,7 +185,13 @@ impl EventHandler for Handler {
                     command.name("help").description("DM yourself help info")
                 })
                 .create_application_command(|command| {
-                    command.name("matches").description("Show matches")
+                    command.name("matches").description("Show matches").create_option(|option| {
+                        option
+                            .name("displayid")
+                            .description("Display match IDs")
+                            .kind(ApplicationCommandOptionType::Boolean)
+                            .required(false)
+                    })
                 })
                 .create_application_command(|command| {
                     command.name("riotid").description("Set your Riot ID").create_option(|option| {

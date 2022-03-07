@@ -218,7 +218,10 @@ pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandI
     String::from("You are not part of any team. Verify you have a role starting with `Team`")
 }
 
-pub(crate) async fn handle_matches(context: &Context, _msg: &ApplicationCommandInteraction) -> String {
+pub(crate) async fn handle_matches(context: &Context, msg: &ApplicationCommandInteraction) -> String {
+    let option_one = msg.data
+        .options
+        .get(0);
     let data = context.data.write().await;
     let matches: &Vec<Match> = data.get::<Matches>().unwrap();
     if matches.is_empty() {
@@ -231,13 +234,18 @@ pub(crate) async fn handle_matches(context: &Context, _msg: &ApplicationCommandI
             if let Some(schedule) = &m.schedule_info {
                 schedule_str = format!(" > Scheduled: `{} @ {}`", schedule.date.format("%m/%d/%Y").to_string().as_str(), schedule.time_str.as_str());
             }
+            let mut row= String::new();
             if m.note.is_some() {
-                let row = format!("- {} vs {} `{}` {}\n", m.team_one.name, m.team_two.name, m.note.clone().unwrap(), schedule_str);
-                row
+                row.push_str(format!("- {} vs {} `{}` {}\n", m.team_one.name, m.team_two.name, m.note.clone().unwrap(), schedule_str).as_str());
             } else {
-                let row = format!("- {} vs {} {}\n", m.team_one.name, m.team_two.name, schedule_str);
-                row
+                row.push_str(format!("- {} vs {} {}\n", m.team_one.name, m.team_two.name, schedule_str).as_str());
             }
+            if let Some(option) = option_one {
+                if let Some(ApplicationCommandInteractionDataOptionValue::Boolean(display)) = &option.resolved{
+                    if *display {row.push_str(format!("    Match ID: `{}`\n", m.id).as_str())}
+                }
+            }
+            row
         })
         .collect();
     matches_str
