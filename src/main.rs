@@ -9,7 +9,7 @@ use serenity::Client;
 use serenity::client::Context;
 use serenity::framework::standard::StandardFramework;
 use serenity::model::guild::Role;
-use serenity::model::prelude::{GuildId, Interaction, InteractionResponseType, Ready};
+use serenity::model::prelude::{GuildId, Interaction, InteractionResponseType, Ready, RoleId};
 use serenity::model::prelude::application_command::{ApplicationCommandInteraction, ApplicationCommandOptionType};
 use serenity::model::user::User;
 use serenity::prelude::{EventHandler, TypeMapKey};
@@ -52,21 +52,35 @@ struct Veto {
     vetoed_by: Role,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 enum MatchState {
     Entered,
     Scheduled,
     Completed,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+struct RolePartial {
+    id: RoleId,
+    name: String,
+    guild_id: GuildId,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct ScheduleInfo {
+    date: DateTime<Utc>,
+    time_str: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 struct Match {
     id: Uuid,
-    team_one: Option<Role>,
-    team_two: Option<Role>,
+    team_one: RolePartial,
+    team_two: RolePartial,
     note: Option<String>,
     date_added: DateTime<Utc>,
     match_state: MatchState,
+    schedule_info: Option<ScheduleInfo>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -215,7 +229,7 @@ impl EventHandler for Handler {
                             .name("time")
                             .description("Time (include timezone) i.e. 10EST")
                             .kind(ApplicationCommandOptionType::String)
-                            .required(false)
+                            .required(true)
                     })
                 })
             ;

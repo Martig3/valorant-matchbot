@@ -1,11 +1,14 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::ops::Deref;
+use std::ops::{Deref, Index};
+use std::str::FromStr;
 use chrono::{Date, DateTime, Utc};
+use rand::distributions::uniform::SampleBorrow;
 
 
 use regex::Regex;
 use serenity::client::Context;
+use serenity::http::CacheHttp;
 use serenity::model::channel::{Message};
 use serenity::model::interactions::application_command::ApplicationCommandInteraction;
 use serenity::model::prelude::application_command::ApplicationCommandInteractionDataOptionValue;
@@ -15,7 +18,7 @@ use serenity::utils::MessageBuilder;
 use tokio::sync::RwLockWriteGuard;
 use uuid::Uuid;
 
-use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer, Match, Matches, MatchState};
+use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer, Match, Matches, MatchState, RolePartial, ScheduleInfo};
 use crate::utils::{admin_check, write_to_file};
 
 
@@ -158,10 +161,55 @@ pub(crate) async fn handle_map_list(context: &Context) -> String {
 }
 
 pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandInteraction) -> String {
-    String::from("")
+    let option_one = msg.data
+        .options
+        .get(0)
+        .expect("Expected date option")
+        .resolved
+        .as_ref()
+        .expect("Expected object");
+    let option_two = msg.data
+        .options
+        .get(1)
+        .expect("Expected time option")
+        .resolved
+        .as_ref()
+        .expect("Expected object");
+    let mut date: Option<DateTime<Utc>> = None;
+    let mut time: Option<String> = None;
+    if let ApplicationCommandInteractionDataOptionValue::String(date_str) = option_one {
+        if let Ok(date_result) = DateTime::parse_from_str(date_str, "MM/DD/yyyy") {
+            date = Some(DateTime::from(date_result));
+        } else {
+            return String::from("Incorrect date format. Please use correct format (MM/DD/YYYY) i.e. `12/23/2022`");
+        }
+    }
+    if let ApplicationCommandInteractionDataOptionValue::String(time_str) = option_two {
+        time = Some(time_str.to_string());
+    }
+    if let Ok(roles) = context.http.get_guild_roles(*msg.guild_id.unwrap().as_u64()).await {
+        let team_roles: Vec<Role> = roles.into_iter().filter(|r| r.name.starts_with("Team")).collect();
+        let mut user_team_role: Option<Role> = None;
+        for team_role in team_roles {
+            if let Ok(_has_role) = msg.user.has_role(&context.http, team_role.guild_id, team_role.id).await {
+                user_team_role = Some(team_role);
+                break;
+            }
+        }
+        if let Some(team_role) = user_team_role {
+            let mut data = context.data.write().await;
+            let matches: &mut Vec<Match> = data.get_mut::<Matches>().unwrap();
+            for m in matches {
+                if m.team_one.id != team_role.id && m.team_two.id != team_role.id { continue; }
+                m.schedule_info = Some(ScheduleInfo { date: date.unwrap(), time_str: time.clone().unwrap() });
+                return format!("Your next match ({} vs {}) is now scheduled", m.team_one.name, m.team_two.name);
+            }
+        }
+    }
+    String::from("You are not part of any team. Verify you have a role starting with `Team `")
 }
 
-pub(crate) async fn handle_matches(context: &Context, msg: &ApplicationCommandInteraction) -> String {
+pub(crate) async fn handle_matches(context: &Context, _msg: &ApplicationCommandInteraction) -> String {
     let data = context.data.write().await;
     let matches: &Vec<Match> = data.get::<Matches>().unwrap();
     if matches.is_empty() {
@@ -170,10 +218,10 @@ pub(crate) async fn handle_matches(context: &Context, msg: &ApplicationCommandIn
     let matches_str: String = matches.iter()
         .map(|m| {
             if m.note.is_some() {
-                let row = format!("- {} vs {} `{}`\n", m.team_one.clone().unwrap().name, m.team_two.clone().unwrap().name, m.note.clone().unwrap());
+                let row = format!("- {} vs {} `{}`\n", m.team_one.name, m.team_two.name, m.note.clone().unwrap());
                 row
             } else {
-                let row = format!("- {} vs {} \n", m.team_one.clone().unwrap().name, m.team_two.clone().unwrap().name);
+                let row = format!("- {} vs {} \n", m.team_one.name, m.team_two.name);
                 row
             }
         })
@@ -199,13 +247,15 @@ pub(crate) async fn handle_add_match(context: &Context, msg: &ApplicationCommand
     let option_three = msg.data
         .options
         .get(2);
-    let mut new_match = Match { id: Uuid::new_v4(), team_one: None, team_two: None, note: None, date_added: Utc::now(), match_state: MatchState::Entered };
-    if let ApplicationCommandInteractionDataOptionValue::Role(team_one) = option_one {
-        new_match.team_one = Option::from(team_one.clone());
+    let mut team_one = None;
+    let mut team_two = None;
+    if let ApplicationCommandInteractionDataOptionValue::Role(team_one_role) = option_one {
+        team_one = Some(RolePartial { id: team_one_role.id, name: team_one_role.name.to_string(), guild_id: team_one_role.guild_id });
     }
-    if let ApplicationCommandInteractionDataOptionValue::Role(team_two) = option_two {
-        new_match.team_two = Option::from(team_two.clone());
+    if let ApplicationCommandInteractionDataOptionValue::Role(team_two_role) = option_two {
+        team_two = Some(RolePartial { id: team_two_role.id, name: team_two_role.name.to_string(), guild_id: team_two_role.guild_id });
     }
+    let mut new_match = Match { id: Uuid::new_v4(), team_one: team_one.unwrap(), team_two: team_two.unwrap(), note: None, date_added: Utc::now(), match_state: MatchState::Entered, schedule_info: None };
     if let Some(option) = option_three {
         if let Some(ApplicationCommandInteractionDataOptionValue::String(option_value)) = &option.resolved {
             new_match.note = Option::from(option_value.clone());
@@ -214,7 +264,7 @@ pub(crate) async fn handle_add_match(context: &Context, msg: &ApplicationCommand
     let mut data = context.data.write().await;
     let matches: &mut Vec<Match> = data.get_mut::<Matches>().unwrap();
     matches.push(new_match);
-    write_to_file("matches.json", serde_json::to_string(matches).unwrap()).await;
+    write_to_file("matches.json", serde_json::to_string_pretty(matches).unwrap()).await;
     String::from("Successfully added new match")
 }
 
