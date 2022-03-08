@@ -1,15 +1,41 @@
 use std::collections::HashMap;
-use serenity::model::prelude::{GuildContainer, Message, RoleId, User};
+use serenity::model::prelude::{GuildContainer, Message, Role, RoleId, User};
 use serenity::model::prelude::application_command::ApplicationCommandInteraction;
 use serenity::prelude::Context;
 use serenity::utils::MessageBuilder;
-use crate::Config;
+use crate::{Config, Setup, State};
 
 pub(crate) async fn write_to_file(path: &str, content: String) {
     let mut error_string = String::from("Error writing to ");
     error_string.push_str(&path);
     std::fs::write(path, content)
         .expect(&error_string);
+}
+
+pub(crate) async fn find_user_team_role(all_guild_roles: Vec<Role>, user: &User, context: &&Context) -> Result<Role, String> {
+    let team_roles: Vec<Role> = all_guild_roles.into_iter().filter(|r| r.name.starts_with("Team")).collect();
+    for team_role in team_roles {
+        if let Ok(has_role) = user.has_role(&context.http, team_role.guild_id, team_role.id).await {
+            if !has_role { continue; }
+            return Ok(team_role);
+        }
+    } 
+    Err(String::from("User does not have a team role"))
+}
+pub(crate) async fn map_veto_allowed(context: &Context, msg: &ApplicationCommandInteraction) -> Result<(), String> {
+    let mut data = context.data.write().await;
+    let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
+    if setup.current_phase != State::MapVeto {
+        return Err(String::from("It is not the map veto phase"));
+    }
+    if let Ok(has_role_one) = msg.user.has_role(&context.http, msg.guild_id.unwrap(), setup.clone().team_one.unwrap().id).await {
+        if let Ok(has_role_two) = msg.user.has_role(&context.http, msg.guild_id.unwrap(), setup.clone().team_two.unwrap().id).await {
+            if !has_role_one && !has_role_two {
+                return Err(String::from("You are not part of either team currently running `/setup`"));
+            }
+        }
+    } 
+    Ok(())
 }
 
 pub(crate) async fn admin_check(context: &Context, inc_command: &ApplicationCommandInteraction) -> Result<String, String> {

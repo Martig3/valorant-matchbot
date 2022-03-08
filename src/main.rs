@@ -14,6 +14,7 @@ use serenity::model::prelude::application_command::{ApplicationCommandInteractio
 use serenity::model::user::User;
 use serenity::prelude::{EventHandler, TypeMapKey};
 use uuid::Uuid;
+use crate::SeriesType::{Bo1, Bo3, Bo5};
 
 mod commands;
 mod utils;
@@ -38,15 +39,15 @@ struct StateContainer {
     state: State,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct SeriesMap {
     map: String,
-    picked_by: Role,
-    start_attack: Role,
-    start_defense: Role,
+    picked_by: RolePartial,
+    start_attack: Option<Role>,
+    start_defense: Option<Role>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Veto {
     map: String,
     vetoed_by: Role,
@@ -73,6 +74,13 @@ struct ScheduleInfo {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+struct SetupInfo {
+    series_type: SeriesType,
+    maps: Vec<SeriesMap>,
+    vetos: Vec<Veto>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 struct Match {
     id: Uuid,
     team_one: RolePartial,
@@ -81,22 +89,44 @@ struct Match {
     date_added: DateTime<Utc>,
     match_state: MatchState,
     schedule_info: Option<ScheduleInfo>,
+    setup_info: Option<SetupInfo>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+enum SeriesType {
+    Bo1,
+    Bo3,
+    Bo5,
+}
+
+#[derive(PartialEq, Clone, Serialize, Deserialize)]
+enum StepType {
+    Veto,
+    Pick,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct SetupStep {
+    step_type: StepType,
+    team: RolePartial,
+    map: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 struct Setup {
-    captain_a: Option<User>,
-    captain_b: Option<User>,
-    team_a: Option<Role>,
-    team_b: Option<Role>,
-    current_picker: Option<User>,
-    current_vetoer: Option<User>,
+    team_one: Option<RolePartial>,
+    team_two: Option<RolePartial>,
     maps_remaining: Vec<String>,
     maps: Vec<SeriesMap>,
     vetos: Vec<Veto>,
+    series_type: SeriesType,
+    match_id: Option<Uuid>,
+    veto_pick_order: Vec<SetupStep>,
+    current_step: usize,
+    current_phase: State,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Serialize, Deserialize, Clone)]
 enum State {
     Idle,
     MapVeto,
@@ -149,15 +179,28 @@ enum Command {
     Cancel,
     Defense,
     Attack,
+    Pick,
+    Ban,
     Help,
 }
 
+impl FromStr for SeriesType {
+    type Err = ();
+    fn from_str(input: &str) -> Result<SeriesType, Self::Err> {
+        match input {
+            "bo1" => Ok(Bo1),
+            "bo3" => Ok(Bo3),
+            "bo5" => Ok(Bo5),
+            _ => Err(()),
+        }
+    }
+}
 
 impl FromStr for Command {
     type Err = ();
     fn from_str(input: &str) -> Result<Command, Self::Err> {
         match input {
-            "start" => Ok(Command::Setup),
+            "setup" => Ok(Command::Setup),
             "schedule" => Ok(Command::Schedule),
             "addmatch" => Ok(Command::Addmatch),
             "deletematch" => Ok(Command::Deletematch),
@@ -167,6 +210,8 @@ impl FromStr for Command {
             "cancel" => Ok(Command::Cancel),
             "defense" => Ok(Command::Defense),
             "attack" => Ok(Command::Attack),
+            "pick" => Ok(Command::Pick),
+            "ban" => Ok(Command::Ban),
             "help" => Ok(Command::Help),
             _ => Err(()),
         }
@@ -211,6 +256,49 @@ impl EventHandler for Handler {
                             .description("Your Riot ID, i.e. Martige#0123")
                             .kind(ApplicationCommandOptionType::String)
                             .required(true)
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("setup").description("Setup your next match").create_option(|option| {
+                        option
+                            .name("type")
+                            .description("Series Type")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                            .add_string_choice("Best of 3", "bo3")
+                            .add_string_choice("Best of 5", "bo5")
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("pick").description("Pick a map during the map veto").create_option(|option| {
+                        option
+                            .name("map")
+                            .description("Map name")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                            .add_string_choice("Ascent", "ascent")
+                            .add_string_choice("Bind", "bind")
+                            .add_string_choice("Breeze", "breeze")
+                            .add_string_choice("Fracture", "fracture")
+                            .add_string_choice("Haven", "haven")
+                            .add_string_choice("Icebox", "icebox")
+                            .add_string_choice("Split", "split")
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("ban").description("Ban a map during the map veto").create_option(|option| {
+                        option
+                            .name("map")
+                            .description("Map name")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                            .add_string_choice("Ascent", "ascent")
+                            .add_string_choice("Bind", "bind")
+                            .add_string_choice("Breeze", "breeze")
+                            .add_string_choice("Fracture", "fracture")
+                            .add_string_choice("Haven", "haven")
+                            .add_string_choice("Icebox", "icebox")
+                            .add_string_choice("Split", "split")
                     })
                 })
                 .create_application_command(|command| {
@@ -277,6 +365,8 @@ impl EventHandler for Handler {
                 Command::RiotID => commands::handle_riotid(&context, &inc_command).await,
                 Command::Defense => commands::handle_defense_option(&context, &inc_command).await,
                 Command::Attack => commands::handle_attack_option(&context, &inc_command).await,
+                Command::Pick => commands::handle_pick_option(&context, &inc_command).await,
+                Command::Ban => commands::handle_ban_option(&context, &inc_command).await,
                 Command::Cancel => commands::handle_cancel(&context, &inc_command).await,
                 Command::Help => commands::handle_help(&context, &inc_command).await,
             };
@@ -315,15 +405,16 @@ async fn main() {
         data.insert::<Maps>(read_maps().await.unwrap());
         data.insert::<Matches>(read_matches().await.unwrap());
         data.insert::<Setup>(Setup {
-            captain_a: None,
-            captain_b: None,
-            current_picker: None,
-            current_vetoer: None,
-            team_a: None,
-            team_b: None,
+            team_one: None,
+            team_two: None,
             maps: Vec::new(),
             vetos: Vec::new(),
-            maps_remaining: Vec::new(),
+            maps_remaining: read_maps().await.unwrap(),
+            series_type: Bo3,
+            match_id: None,
+            veto_pick_order: Vec::new(),
+            current_step: 0,
+            current_phase: State::Idle,
         });
     }
     if let Err(why) = client.start().await {

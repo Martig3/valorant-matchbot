@@ -18,8 +18,10 @@ use serenity::utils::MessageBuilder;
 use tokio::sync::RwLockWriteGuard;
 use uuid::Uuid;
 
-use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer, Match, Matches, MatchState, RolePartial, ScheduleInfo};
-use crate::utils::{admin_check, write_to_file};
+use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, utils, SetupStep, SeriesMap};
+use crate::State::{MapVeto, SidePick};
+use crate::StepType::{Pick, Veto};
+use crate::utils::{admin_check, write_to_file, find_user_team_role, map_veto_allowed};
 
 
 // pub(crate) async fn handle_list(context: &Context, msg: Message) {
@@ -74,25 +76,80 @@ _These are privileged admin commands:_
 }
 
 pub(crate) async fn handle_setup(context: &Context, msg: &ApplicationCommandInteraction) -> String {
-    let admin_check = admin_check(&context, &msg).await;
-    if let Err(error) = admin_check { return error; }
-    let data = context.data.write().await;
-    let bot_state: &StateContainer = data.get::<BotState>().unwrap();
-    if bot_state.state != State::Idle {
-        return String::from(" `/setup` command has already been entered");
+    {
+        let data = context.data.write().await;
+        let bot_state: &StateContainer = data.get::<BotState>().unwrap();
+        if bot_state.state != State::Idle {
+            return String::from(" `/setup` command has already been entered");
+        }
     }
+    let option = msg.data
+        .options
+        .get(0)
+        .expect("Expected match type option")
+        .resolved
+        .as_ref()
+        .expect("Expected object");
+
+    let mut next_match = None;
+    if let Ok(roles) = context.http.get_guild_roles(*msg.guild_id.unwrap().as_u64()).await {
+        if let Ok(team_role) = find_user_team_role(roles, &msg.user, &context).await {
+            let mut data = context.data.write().await;
+            let matches: &mut Vec<Match> = data.get_mut::<Matches>().unwrap();
+            for m in matches.iter_mut() {
+                if m.team_one.id != team_role.id && m.team_two.id != team_role.id { continue; }
+                next_match = Some(m.clone());
+            }
+        }
+    } else {
+        return String::from("You are not part of any team. Verify you have a role starting with `Team`");
+    }
+    if next_match.is_none() {
+        return String::from("Your team does not have any scheduled matches");
+    }
+    let current_match = next_match.unwrap();
+    let mut data = context.data.write().await;
+    let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
+    if let ApplicationCommandInteractionDataOptionValue::String(match_type) = option {
+        setup.series_type = SeriesType::from_str(match_type).unwrap();
+    }
+    setup.team_one = Some(current_match.team_one.clone());
+    setup.team_two = Some(current_match.team_two.clone());
+    setup.match_id = Some(current_match.id.clone());
+
+    if let ApplicationCommandInteractionDataOptionValue::String(match_type) = option {
+        let resp = match SeriesType::from_str(match_type).unwrap() {
+            SeriesType::Bo1 => { handle_bo1_setup(context, msg).await }
+            SeriesType::Bo3 => { handle_bo3_setup(context, msg).await }
+            SeriesType::Bo5 => { handle_bo5_setup(context, msg).await }
+        };
+        return resp;
+    }
+    String::from("Setup encountered an error")
+}
+
+pub(crate) async fn handle_bo1_setup(_context: &Context, _msg: &ApplicationCommandInteraction) -> String {
+    String::from("This option has not been implemented")
+}
+
+pub(crate) async fn handle_bo3_setup(context: &Context, _msg: &ApplicationCommandInteraction) -> String {
+    let mut data = context.data.write().await;
+    let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
+    setup.veto_pick_order = vec![
+        SetupStep { step_type: Veto, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
+    ];
+    setup.current_step = 0;
+    setup.current_phase = MapVeto;
     String::from("")
-    // let user_queue_mention: String = user_queue
-    //     .iter()
-    //     .map(|user| format!("- <@{}>\n", user.id))
-    //     .collect();
-    // let response = MessageBuilder::new()
-    //     .push(user_queue_mention)
-    //     .push_bold_line("Match setup is starting...")
-    //     .build();
-    // if let Err(why) = msg.channel_id.say(&context.http, &response).await {
-    //     eprintln!("Error sending message: {:?}", why);
-    // }
+}
+
+pub(crate) async fn handle_bo5_setup(_context: &Context, _msg: &ApplicationCommandInteraction) -> String {
+    String::from("This option has not been implemented")
 }
 
 pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {
@@ -102,9 +159,6 @@ pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCo
         return String::from(" it is not currently the side pick phase");
     }
     let draft: &mut Setup = data.get_mut::<Setup>().unwrap();
-    if &msg.user != draft.captain_b.as_ref().unwrap() {
-        return String::from(" you are not Captain B");
-    }
     // TODO: more elaborate printout here
     String::from("Setup is completed.")
 }
@@ -116,9 +170,6 @@ pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCom
         return String::from(" it is not currently the side pick phase");
     }
     let draft: &mut Setup = data.get_mut::<Setup>().unwrap();
-    if &msg.user != draft.captain_b.as_ref().unwrap() {
-        return String::from(" you are not Captain B");
-    }
     String::from("Setup is completed.")
 }
 
@@ -148,6 +199,89 @@ pub(crate) async fn handle_riotid(context: &Context, msg: &ApplicationCommandInt
             .build();
     }
     String::from("Discord API error")
+}
+
+pub(crate) async fn handle_pick_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {
+    if let Err(err) = map_veto_allowed(context, msg).await {
+        return err;
+    }
+
+    let mut data = context.data.write().await;
+    let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
+    if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != Pick {
+        return String::from("It is not your turn to pick");
+    }
+    let option = msg.data
+        .options
+        .get(0)
+        .expect("Expected map name option")
+        .resolved
+        .as_ref()
+        .expect("Expected object");
+    if let ApplicationCommandInteractionDataOptionValue::String(map) = option {
+        if !setup.maps_remaining.contains(map) {
+            return String::from("Select a remaining map");
+        }
+        setup.veto_pick_order[setup.current_step].map = Some(String::from(map));
+        let map_index = setup.maps_remaining.iter().position(|m| m == map).unwrap();
+        setup.maps_remaining.remove(map_index);
+        let picked_by_team = setup.veto_pick_order[setup.current_step].team.clone();
+        setup.maps.push(SeriesMap {
+            map: map.clone(),
+            picked_by: picked_by_team.clone(),
+            start_attack: None,
+            start_defense: None,
+        });
+        let mut resp = format!("<@&{}> picked `{}`. Maps remaining:\n", &picked_by_team.name, map);
+        let map_str: String = setup.maps_remaining.iter().map(|map| format!("- `{}`\n", map)).collect();
+        resp.push_str(map_str.as_str());
+        setup.current_step += 1;
+        if setup.current_step >= setup.veto_pick_order.len() {
+            setup.current_phase = SidePick;
+            resp = String::from("Map veto has concluded. Teams will now pick starting sides.");
+            setup.current_step = 0;
+        }
+        return resp;
+    }
+    String::from("There was an issue picking a map")
+}
+
+pub(crate) async fn handle_ban_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {
+    if let Err(err) = map_veto_allowed(context, msg).await {
+        return err;
+    }
+    let mut data = context.data.write().await;
+    let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
+    if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != Pick {
+        return String::from("It is not your turn to pick");
+    }
+    let option = msg.data
+        .options
+        .get(0)
+        .expect("Expected map name option")
+        .resolved
+        .as_ref()
+        .expect("Expected object");
+    if let ApplicationCommandInteractionDataOptionValue::String(map) = option {
+        if !setup.maps_remaining.contains(map) {
+            return String::from("Select a remaining map");
+        }
+        setup.veto_pick_order[setup.current_step].map = Some(String::from(map));
+        let map_index = setup.maps_remaining.iter().position(|m| m == map).unwrap();
+        setup.maps_remaining.remove(map_index);
+        let banned_by_team = setup.veto_pick_order[setup.current_step].team.clone();
+        let mut resp = format!("<@&{}> banned `{}`. Maps remaining:\n", &banned_by_team.name, map);
+        let map_str: String = setup.maps_remaining.iter().map(|map| format!("- `{}`\n", map)).collect();
+        resp.push_str(map_str.as_str());
+        setup.current_step += 1;
+        if setup.current_step >= setup.veto_pick_order.len() {
+            setup.current_phase = SidePick;
+            resp = String::from("Map veto has concluded. Teams will now pick starting sides.");
+            setup.current_step = 0;
+        }
+        return resp;
+    }
+    String::from("There was an issue banning a map")
 }
 
 pub(crate) async fn handle_map_list(context: &Context) -> String {
@@ -279,7 +413,16 @@ pub(crate) async fn handle_add_match(context: &Context, msg: &ApplicationCommand
     if let ApplicationCommandInteractionDataOptionValue::Role(team_two_role) = option_two {
         team_two = Some(RolePartial { id: team_two_role.id, name: team_two_role.name.to_string(), guild_id: team_two_role.guild_id });
     }
-    let mut new_match = Match { id: Uuid::new_v4(), team_one: team_one.unwrap(), team_two: team_two.unwrap(), note: None, date_added: Utc::now(), match_state: MatchState::Entered, schedule_info: None };
+    let mut new_match = Match {
+        id: Uuid::new_v4(),
+        team_one: team_one.unwrap(),
+        team_two: team_two.unwrap(),
+        note: None,
+        date_added: Utc::now(),
+        match_state: MatchState::Entered,
+        schedule_info: None,
+        setup_info: None,
+    };
     if let Some(option) = option_three {
         if let Some(ApplicationCommandInteractionDataOptionValue::String(option_value)) = &option.resolved {
             new_match.note = Option::from(option_value.clone());
@@ -326,20 +469,16 @@ pub(crate) async fn handle_ready(context: &Context, _msg: &Message) {
     let mut data = context.data.write().await;
     // reset to Idle state
     let draft: &mut Setup = data.get_mut::<Setup>().unwrap();
-    draft.team_a = None;
-    draft.team_b = None;
+    draft.team_one = None;
+    draft.team_two = None;
     draft.maps_remaining = Vec::new();
     draft.vetos = Vec::new();
-    draft.current_vetoer = None;
-    draft.captain_a = None;
-    draft.captain_b = None;
-    draft.current_picker = None;
     let bot_state: &mut StateContainer = data.get_mut::<BotState>().unwrap();
     bot_state.state = State::Idle;
 }
 
 pub(crate) async fn handle_cancel(context: &Context, msg: &ApplicationCommandInteraction) -> String {
-    let admin_check = admin_check(&context, &msg).await;
+    let admin_check = admin_check(context, msg).await;
     if let Err(error) = admin_check { return error; }
     let mut data = context.data.write().await;
     let bot_state: &StateContainer = data.get::<BotState>().unwrap();
@@ -347,14 +486,10 @@ pub(crate) async fn handle_cancel(context: &Context, msg: &ApplicationCommandInt
         return String::from(" command only valid during `.setup` process");
     }
     let draft: &mut Setup = data.get_mut::<Setup>().unwrap();
-    draft.team_a = None;
-    draft.team_b = None;
+    draft.team_one = None;
+    draft.team_two = None;
     draft.maps_remaining = Vec::new();
     draft.vetos = Vec::new();
-    draft.current_vetoer = None;
-    draft.captain_a = None;
-    draft.captain_b = None;
-    draft.current_picker = None;
     let bot_state: &mut StateContainer = data.get_mut::<BotState>().unwrap();
     bot_state.state = State::Idle;
     String::from("`.setup` process cancelled.")
