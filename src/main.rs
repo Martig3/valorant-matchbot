@@ -43,8 +43,8 @@ struct StateContainer {
 struct SeriesMap {
     map: String,
     picked_by: RolePartial,
-    start_attack: Option<Role>,
-    start_defense: Option<Role>,
+    start_attack: Option<RolePartial>,
+    start_defense: Option<RolePartial>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -60,7 +60,7 @@ enum MatchState {
     Completed,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct RolePartial {
     id: RoleId,
     name: String,
@@ -131,6 +131,7 @@ enum State {
     Idle,
     MapVeto,
     SidePick,
+    Setup,
 }
 
 struct Handler;
@@ -196,6 +197,14 @@ impl FromStr for SeriesType {
     }
 }
 
+impl ToString for StepType {
+    fn to_string(&self) -> String {
+        String::from(match &self {
+            StepType::Veto => "/ban",
+            StepType::Pick => "/pick",
+        })
+    }
+}
 impl FromStr for Command {
     type Err = ();
     fn from_str(input: &str) -> Result<Command, Self::Err> {
