@@ -78,7 +78,7 @@ pub(crate) async fn get_maps(context: &Context) -> Vec<String> {
 
 
 pub(crate) fn eos_printout(setup: Setup) -> String {
-    let mut resp = String::from("Setup is completed. GLHF!\n\n");
+    let mut resp = String::from("\n\nSetup is completed. GLHF!\n\n");
     for (i, el) in setup.maps.iter().enumerate() {
         resp.push_str(format!("**{}. {}** - picked by: <@&{}>\n    _Defense start:_ <@&{}>\n    _Attack start:_ <@&{}>\n\n", i + 1, el.map.to_uppercase(), &el.picked_by.id, el.start_defense.clone().unwrap().id, el.start_attack.clone().unwrap().id).as_str())
     }
