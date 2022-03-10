@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
-use chrono::{Date, DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,6 @@ use serenity::framework::standard::StandardFramework;
 use serenity::model::guild::Role;
 use serenity::model::prelude::{GuildId, Interaction, InteractionResponseType, Ready, RoleId};
 use serenity::model::prelude::application_command::{ApplicationCommandInteraction, ApplicationCommandOptionType};
-use serenity::model::user::User;
 use serenity::prelude::{EventHandler, TypeMapKey};
 use uuid::Uuid;
 use crate::SeriesType::{Bo1, Bo3, Bo5};
@@ -236,6 +235,9 @@ impl EventHandler for Handler {
             return commands
                 .create_application_command(|command| {
                     command.name("maps").description("Lists the current map pool")
+                })
+                .create_application_command(|command| {
+                    command.name("cancel").description("Cancels setup (requires admin)")
                 })
                 .create_application_command(|command| {
                     command.name("attack").description("Select attack starting side")

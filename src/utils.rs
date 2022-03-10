@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-use serenity::model::prelude::{GuildContainer, Message, Role, RoleId, User};
+use serenity::model::prelude::{GuildContainer, Role, RoleId, User};
 use serenity::model::prelude::application_command::ApplicationCommandInteraction;
 use serenity::prelude::Context;
 use serenity::utils::MessageBuilder;
-use crate::{Config, RolePartial, Setup, State};
+use crate::{Config, Maps, RolePartial, Setup, State};
 
 pub(crate) async fn write_to_file(path: &str, content: String) {
     let mut error_string = String::from("Error writing to ");
@@ -69,6 +68,12 @@ pub(crate) async fn admin_check(context: &Context, inc_command: &ApplicationComm
         };
     }
     Ok(String::from("Admin Role not set, allowed"))
+}
+
+pub(crate) async fn get_maps(context: &Context) -> Vec<String> {
+    let data = context.data.write().await;
+    let maps: &Vec<String> = data.get::<Maps>().unwrap();
+    maps.clone()
 }
 
 

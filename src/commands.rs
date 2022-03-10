@@ -1,47 +1,21 @@
-use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::ops::{Deref, Index};
 use std::str::FromStr;
-use chrono::{Date, DateTime, NaiveDate, Utc};
-use rand::distributions::uniform::SampleBorrow;
+use chrono::{NaiveDate, Utc};
 
 
 use regex::Regex;
 use serenity::client::Context;
-use serenity::model::channel::{Message};
 use serenity::model::interactions::application_command::ApplicationCommandInteraction;
 use serenity::model::prelude::application_command::ApplicationCommandInteractionDataOptionValue;
 use serenity::model::prelude::Role;
-use serenity::prelude::TypeMap;
 use serenity::utils::MessageBuilder;
-use tokio::sync::RwLockWriteGuard;
 use uuid::Uuid;
 
-use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, utils, SetupStep, SeriesMap, StepType};
-use crate::Command::Ban;
-use crate::State::{MapVeto, SidePick};
+use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, SetupStep, SeriesMap, StepType, Bo3};
+use crate::State::{Idle, MapVeto, SidePick};
 use crate::StepType::{Pick, Veto};
-use crate::utils::{admin_check, write_to_file, find_user_team_role, is_phase_allowed, user_team, eos_printout};
+use crate::utils::{admin_check, write_to_file, find_user_team_role, is_phase_allowed, user_team, eos_printout, get_maps};
 
-
-// pub(crate) async fn handle_list(context: &Context, msg: Message) {
-//     let data = context.data.write().await;
-//     let user_queue: &Vec<User> = data.get::<UserQueue>().unwrap();
-//     let mut user_name = String::new();
-//     for u in user_queue {
-//         user_name.push_str(format!("\n- @{}", u.name).as_str());
-//     }
-//     let response = MessageBuilder::new()
-//         .push("Current queue size: ")
-//         .push(&user_queue.len())
-//         .push("/10")
-//         .push(user_name)
-//         .build();
-//
-//     if let Err(why) = msg.channel_id.say(&context.http, &response).await {
-//         eprintln!("Error sending message: {:?}", why);
-//     }
-// }
 
 pub(crate) async fn handle_help(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     let mut commands = String::from("
@@ -157,7 +131,11 @@ pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCo
         }
         let picked_role_id = user_role_partial.id;
         setup.maps[setup.current_step].start_defense = Some(user_role_partial);
-        println!("{}",format!("{}/{}", setup.maps.len(), setup.current_step).as_str());
+        setup.maps[setup.current_step].start_attack = if setup.clone().team_two.unwrap().id == setup.maps[setup.current_step].start_defense.clone().unwrap().id {
+            setup.clone().team_one
+        } else {
+            setup.clone().team_two
+        };
         return if setup.maps.len() - 1 > setup.current_step {
             let next_pick = if setup.clone().team_two.unwrap().id == setup.maps[setup.current_step + 1].picked_by.id {
                 setup.clone().team_one
@@ -169,7 +147,7 @@ pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCo
             resp
         } else {
             eos_printout(setup.clone())
-        }
+        };
     }
     String::from("There was an issue processing this option")
 }
@@ -186,7 +164,11 @@ pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCom
         }
         let picked_role_id = user_role_partial.id;
         setup.maps[setup.current_step].start_attack = Some(user_role_partial);
-        println!("{}",format!("{}/{}", setup.maps.len(), setup.current_step).as_str());
+        setup.maps[setup.current_step].start_defense = if setup.clone().team_two.unwrap().id == setup.maps[setup.current_step].start_attack.clone().unwrap().id {
+            setup.clone().team_one
+        } else {
+            setup.clone().team_two
+        };
         return if setup.maps.len() - 1 > setup.current_step {
             let next_pick = if setup.clone().team_two.unwrap().id == setup.maps[setup.current_step + 1].picked_by.id {
                 setup.clone().team_one
@@ -197,8 +179,10 @@ pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCom
             setup.current_step += 1;
             resp
         } else {
-            eos_printout(setup.clone())
-        }
+            let mut resp = format!("<@&{}> picked to start `attack` on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase());
+            resp.push_str(eos_printout(setup.clone()).as_str());
+            resp
+        };
     }
     String::from("There was an issue processing this option")
 }
@@ -519,32 +503,25 @@ pub(crate) async fn handle_delete_match(context: &Context, msg: &ApplicationComm
     String::from("Successfully deleted match")
 }
 
-pub(crate) async fn handle_ready(context: &Context, _msg: &Message) {
-    let mut data = context.data.write().await;
-    // reset to Idle state
-    let draft: &mut Setup = data.get_mut::<Setup>().unwrap();
-    draft.team_one = None;
-    draft.team_two = None;
-    draft.maps_remaining = Vec::new();
-    draft.vetos = Vec::new();
-    let bot_state: &mut StateContainer = data.get_mut::<BotState>().unwrap();
-    bot_state.state = State::Idle;
-}
-
 pub(crate) async fn handle_cancel(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     let admin_check = admin_check(context, msg).await;
     if let Err(error) = admin_check { return error; }
+    let maps = get_maps(context).await;
     let mut data = context.data.write().await;
-    let bot_state: &StateContainer = data.get::<BotState>().unwrap();
-    if bot_state.state == State::Idle {
-        return String::from(" command only valid during `.setup` process");
-    }
     let draft: &mut Setup = data.get_mut::<Setup>().unwrap();
+    if draft.current_phase == Idle {
+        return String::from(" command only valid during `/setup` process");
+    }
     draft.team_one = None;
     draft.team_two = None;
-    draft.maps_remaining = Vec::new();
+    draft.maps = Vec::new();
     draft.vetos = Vec::new();
-    let bot_state: &mut StateContainer = data.get_mut::<BotState>().unwrap();
-    bot_state.state = State::Idle;
-    String::from("`.setup` process cancelled.")
+    draft.maps_remaining = maps;
+    draft.series_type = Bo3;
+    draft.match_id = None;
+    draft.veto_pick_order = Vec::new();
+    draft.current_step = 0;
+    draft.current_phase = State::Idle;
+    String::from("`/setup` process cancelled.")
 }
+
