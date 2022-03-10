@@ -3,19 +3,52 @@
 Simple Discord bot for managing & organizing team matches
 
 ## Features
+
 // TODO
+
 ### Example Screenshots
+
 // TODO
+
+### Commands
+
+`/setup` - start user's team's next match setup
+
+`/addmatch` - add match to schedule
+
+`/schedule` - schedule match
+
+`/deletematch`- delete match from schedule
+
+`/matches` - list matches
+
+`/maps` - list maps
+
+`/cancel` - cancel setup
+
+`/defense` - pick defense side during side pick phase
+
+`/attack`- pick attack side during side pick phase
+
+`/pick` - pick map during map veto phase
+
+`/ban` - ban map during map veto phase
+
+`/help` - DMs you help text
+
+### Setup
 
 No CI/CD yet so clone the repo, create a `config.yaml` file (see example below) and run using standard `cargo run`
 
-**Note:** Make sure to only allow the bot to listen/read messages in one channel only. 
+**Note:** Make sure to only allow the bot to listen/read messages in one channel only.
+
 ### Example config.yaml
 
 ```yaml
-post-setup-_msg: GLHF! Add any string here -- optional
 discord:
   token: <your discord bot api token>
   admin_role_id: <a discord server role id> -- optional, but highly recommended!!!
-  assign_role_id: <a dicord role id to assign for user on queue join> -- optional
+  channel_id: <text channel id to bind to bot>
+  application_id: <bot application id>
+  guild_id: <your guild id>
 ```
