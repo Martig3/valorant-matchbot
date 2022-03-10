@@ -9,10 +9,10 @@ use serenity::model::prelude::Role;
 use serenity::utils::MessageBuilder;
 use uuid::Uuid;
 
-use crate::{Setup, Maps, State, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, SetupStep, SeriesMap, StepType, Bo3};
+use crate::{Setup, Maps, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, SetupStep, SeriesMap, StepType};
 use crate::State::{Idle, MapVeto, SidePick};
 use crate::StepType::{Pick, Veto};
-use crate::utils::{admin_check, write_to_file, find_user_team_role, is_phase_allowed, user_team, eos_printout, get_maps};
+use crate::utils::{admin_check, write_to_file, find_user_team_role, is_phase_allowed, user_team, eos_printout, get_maps, reset_draft};
 
 
 pub(crate) async fn handle_help(context: &Context, msg: &ApplicationCommandInteraction) -> String {
@@ -125,6 +125,7 @@ pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCo
         return String::from("It is not the side pick phase");
     }
     if let Ok(user_role_partial) = user_team(context, msg).await {
+        let maps = get_maps(context).await;
         let mut data = context.data.write().await;
         let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
         if setup.maps[setup.current_step].picked_by == user_role_partial {
@@ -147,7 +148,10 @@ pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCo
             setup.current_step += 1;
             resp
         } else {
-            eos_printout(setup.clone())
+            let mut resp = format!("<@&{}> picked to start `attack` on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase());
+            resp.push_str(eos_printout(setup.clone()).as_str());
+            reset_draft(setup, maps);
+            resp
         };
     }
     String::from("There was an issue processing this option")
@@ -158,6 +162,7 @@ pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCom
         return String::from("It is not the side pick phase");
     }
     if let Ok(user_role_partial) = user_team(context, msg).await {
+        let maps = get_maps(context).await;
         let mut data = context.data.write().await;
         let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
         if setup.maps[setup.current_step].picked_by == user_role_partial {
@@ -182,11 +187,13 @@ pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCom
         } else {
             let mut resp = format!("<@&{}> picked to start `attack` on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase());
             resp.push_str(eos_printout(setup.clone()).as_str());
+            reset_draft(setup, maps);
             resp
         };
     }
     String::from("There was an issue processing this option")
 }
+
 
 pub(crate) async fn handle_pick_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     if let Err(err) = is_phase_allowed(context, msg, MapVeto).await {
@@ -484,16 +491,7 @@ pub(crate) async fn handle_cancel(context: &Context, msg: &ApplicationCommandInt
     if draft.current_phase == Idle {
         return String::from(" command only valid during `/setup` process");
     }
-    draft.team_one = None;
-    draft.team_two = None;
-    draft.maps = Vec::new();
-    draft.vetos = Vec::new();
-    draft.maps_remaining = maps;
-    draft.series_type = Bo3;
-    draft.match_id = None;
-    draft.veto_pick_order = Vec::new();
-    draft.current_step = 0;
-    draft.current_phase = State::Idle;
+    reset_draft(draft, maps);
     String::from("`/setup` process cancelled.")
 }
 

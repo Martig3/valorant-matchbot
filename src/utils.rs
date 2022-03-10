@@ -2,7 +2,7 @@ use serenity::model::prelude::{GuildContainer, Role, RoleId, User};
 use serenity::model::prelude::application_command::ApplicationCommandInteraction;
 use serenity::prelude::Context;
 use serenity::utils::MessageBuilder;
-use crate::{Config, Maps, RolePartial, Setup, State};
+use crate::{Bo3, Config, Maps, RolePartial, Setup, State};
 
 pub(crate) async fn write_to_file(path: &str, content: String) {
     let mut error_string = String::from("Error writing to ");
@@ -83,4 +83,17 @@ pub(crate) fn eos_printout(setup: Setup) -> String {
         resp.push_str(format!("**{}. {}** - picked by: <@&{}>\n    _Defense start:_ <@&{}>\n    _Attack start:_ <@&{}>\n\n", i + 1, el.map.to_uppercase(), &el.picked_by.id, el.start_defense.clone().unwrap().id, el.start_attack.clone().unwrap().id).as_str())
     }
     resp
+}
+
+pub(crate) fn reset_draft(setup: &mut Setup, maps: Vec<String>) {
+    setup.team_one = None;
+    setup.team_two = None;
+    setup.maps = Vec::new();
+    setup.vetos = Vec::new();
+    setup.maps_remaining = maps;
+    setup.series_type = Bo3;
+    setup.match_id = None;
+    setup.veto_pick_order = Vec::new();
+    setup.current_step = 0;
+    setup.current_phase = State::Idle;
 }
