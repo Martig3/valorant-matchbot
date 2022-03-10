@@ -367,7 +367,6 @@ impl EventHandler for Handler {
                 Command::Schedule => commands::handle_schedule(&context, &inc_command).await,
                 Command::Matches => commands::handle_matches(&context, &inc_command).await,
                 Command::Maps => commands::handle_map_list(&context).await,
-                Command::RiotID => commands::handle_riotid(&context, &inc_command).await,
                 Command::Defense => commands::handle_defense_option(&context, &inc_command).await,
                 Command::Attack => commands::handle_attack_option(&context, &inc_command).await,
                 Command::Pick => commands::handle_pick_option(&context, &inc_command).await,
