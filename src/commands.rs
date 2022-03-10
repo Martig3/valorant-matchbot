@@ -1,9 +1,7 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 use chrono::{NaiveDate, Utc};
 
 
-use regex::Regex;
 use serenity::client::Context;
 use serenity::model::interactions::application_command::ApplicationCommandInteraction;
 use serenity::model::prelude::application_command::ApplicationCommandInteractionDataOptionValue;
@@ -11,7 +9,7 @@ use serenity::model::prelude::Role;
 use serenity::utils::MessageBuilder;
 use uuid::Uuid;
 
-use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, SetupStep, SeriesMap, StepType, Bo3};
+use crate::{Setup, Maps, State, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, SetupStep, SeriesMap, StepType, Bo3};
 use crate::State::{Idle, MapVeto, SidePick};
 use crate::StepType::{Pick, Veto};
 use crate::utils::{admin_check, write_to_file, find_user_team_role, is_phase_allowed, user_team, eos_printout, get_maps};
