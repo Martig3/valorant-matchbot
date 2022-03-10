@@ -238,6 +238,12 @@ impl EventHandler for Handler {
                     command.name("maps").description("Lists the current map pool")
                 })
                 .create_application_command(|command| {
+                    command.name("attack").description("Select attack starting side")
+                })
+                .create_application_command(|command| {
+                    command.name("defense").description("Select defense starting side")
+                })
+                .create_application_command(|command| {
                     command.name("help").description("DM yourself help info")
                 })
                 .create_application_command(|command| {

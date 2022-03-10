@@ -71,36 +71,11 @@ pub(crate) async fn admin_check(context: &Context, inc_command: &ApplicationComm
     Ok(String::from("Admin Role not set, allowed"))
 }
 
-pub(crate) async fn populate_unicode_emojis() -> HashMap<char, String> {
-// I hate this implementation and I deserve to be scolded
-// in my defense however, you have to provide unicode emojis to the api
-// if Discord's API allowed their shortcuts i.e. ":smile:" instead that would have been more intuitive
-    let mut map = HashMap::new();
-    map.insert('a', String::from("🇦"));
-    map.insert('b', String::from("🇧"));
-    map.insert('c', String::from("🇨"));
-    map.insert('d', String::from("🇩"));
-    map.insert('e', String::from("🇪"));
-    map.insert('f', String::from("🇫"));
-    map.insert('g', String::from("🇬"));
-    map.insert('h', String::from("🇭"));
-    map.insert('i', String::from("🇮"));
-    map.insert('j', String::from("🇯"));
-    map.insert('k', String::from("🇰"));
-    map.insert('l', String::from("🇱"));
-    map.insert('m', String::from("🇲"));
-    map.insert('n', String::from("🇳"));
-    map.insert('o', String::from("🇴"));
-    map.insert('p', String::from("🇵"));
-    map.insert('q', String::from("🇶"));
-    map.insert('r', String::from("🇷"));
-    map.insert('s', String::from("🇸"));
-    map.insert('t', String::from("🇹"));
-    map.insert('u', String::from("🇺"));
-    map.insert('v', String::from("🇻"));
-    map.insert('w', String::from("🇼"));
-    map.insert('x', String::from("🇽"));
-    map.insert('y', String::from("🇾"));
-    map.insert('z', String::from("🇿"));
-    map
+
+pub(crate) fn eos_printout(setup: Setup) -> String {
+    let mut resp = String::from("Setup is completed. GLHF!\n\n");
+    for (i, el) in setup.maps.iter().enumerate() {
+        resp.push_str(format!("**{}. {}** - picked by: <@&{}>\n    _Defense start:_ <@&{}>\n    _Attack start:_ <@&{}>\n\n", i + 1, el.map, &el.picked_by.id, el.start_defense.clone().unwrap().id, el.start_attack.clone().unwrap().id).as_str())
+    }
+    resp
 }

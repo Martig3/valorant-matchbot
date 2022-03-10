@@ -17,10 +17,11 @@ use serenity::utils::MessageBuilder;
 use tokio::sync::RwLockWriteGuard;
 use uuid::Uuid;
 
-use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, utils, SetupStep, SeriesMap};
+use crate::{BotState, Setup, Maps, RiotIdCache, State, StateContainer, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, utils, SetupStep, SeriesMap, StepType};
+use crate::Command::Ban;
 use crate::State::{MapVeto, SidePick};
 use crate::StepType::{Pick, Veto};
-use crate::utils::{admin_check, write_to_file, find_user_team_role, is_phase_allowed, user_team};
+use crate::utils::{admin_check, write_to_file, find_user_team_role, is_phase_allowed, user_team, eos_printout};
 
 
 // pub(crate) async fn handle_list(context: &Context, msg: Message) {
@@ -91,7 +92,6 @@ pub(crate) async fn handle_setup(context: &Context, msg: &ApplicationCommandInte
             for m in matches.iter_mut() {
                 if m.team_one.id != team_role.id && m.team_two.id != team_role.id { continue; }
                 next_match = Some(m.clone());
-                println!("Found match");
             }
         }
     } else {
@@ -111,7 +111,7 @@ pub(crate) async fn handle_setup(context: &Context, msg: &ApplicationCommandInte
     setup.match_id = Some(current_match.id);
     setup.current_step = 0;
     setup.current_phase = MapVeto;
-    let map_str: String = setup.maps_remaining.iter().map(|map| format!("- `{}`\n", map)).collect();
+    let map_str: String = setup.maps_remaining.iter().map(|map| format!("- `{}`\n", map.to_uppercase())).collect();
     if let ApplicationCommandInteractionDataOptionValue::String(match_type) = option {
         let mut result = match SeriesType::from_str(match_type).unwrap() {
             SeriesType::Bo1 => { handle_bo1_setup(msg, setup.clone()).await }
@@ -138,7 +138,7 @@ pub(crate) async fn handle_bo3_setup(_msg: &ApplicationCommandInteraction, setup
         SetupStep { step_type: Pick, team: setup.clone().team_two.unwrap(), map: None },
         SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
         SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
-    ], format!("Best of 3 option selected. Starting map veto. {} bans first.\n", &setup.team_one.unwrap().name));
+    ], format!("Best of 3 option selected. Starting map veto. <@&{}> bans first.\n", &setup.team_one.unwrap().id));
 }
 
 pub(crate) async fn handle_bo5_setup(_msg: &ApplicationCommandInteraction, _setup: Setup) -> (Vec<SetupStep>, String) {
@@ -157,12 +157,21 @@ pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCo
         }
         let picked_role_id = user_role_partial.id;
         setup.maps[setup.current_step].start_defense = Some(user_role_partial);
-        setup.current_step += 1;
-        if setup.maps.len() >= setup.current_step {} else {
-            return format!("<@&{}> picked to start `defense` on {}; it is now <@&{}>'s turn to pick starting side on {}", &picked_role_id, setup.maps[setup.current_step - 1].map, setup.maps[setup.current_step - 1].picked_by.id, setup.maps[setup.current_step].map);
+        println!("{}",format!("{}/{}", setup.maps.len(), setup.current_step).as_str());
+        return if setup.maps.len() - 1 > setup.current_step {
+            let next_pick = if setup.clone().team_two.unwrap().id == setup.maps[setup.current_step + 1].picked_by.id {
+                setup.clone().team_one
+            } else {
+                setup.clone().team_two
+            };
+            let resp = format!("<@&{}> picked to `defense` on `{}`; it is now <@&{}>'s turn to pick starting side on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase(), next_pick.unwrap().id, setup.maps[setup.current_step + 1].map.to_uppercase());
+            setup.current_step += 1;
+            resp
+        } else {
+            eos_printout(setup.clone())
         }
     }
-    String::from("Setup is completed.")
+    String::from("There was an issue processing this option")
 }
 
 pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {
@@ -177,13 +186,23 @@ pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCom
         }
         let picked_role_id = user_role_partial.id;
         setup.maps[setup.current_step].start_attack = Some(user_role_partial);
-        setup.current_step += 1;
-        if setup.maps.len() >= setup.current_step {} else {
-            return format!("<@&{}> picked to start `attack` on {}; it is now <@&{}>'s turn to pick starting side on {}", &picked_role_id, setup.maps[setup.current_step - 1].map, setup.maps[setup.current_step - 1].picked_by.id, setup.maps[setup.current_step].map);
+        println!("{}",format!("{}/{}", setup.maps.len(), setup.current_step).as_str());
+        return if setup.maps.len() - 1 > setup.current_step {
+            let next_pick = if setup.clone().team_two.unwrap().id == setup.maps[setup.current_step + 1].picked_by.id {
+                setup.clone().team_one
+            } else {
+                setup.clone().team_two
+            };
+            let resp = format!("<@&{}> picked to start `attack` on `{}`; it is now <@&{}>'s turn to pick starting side on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase(), next_pick.unwrap().id, setup.maps[setup.current_step + 1].map.to_uppercase());
+            setup.current_step += 1;
+            resp
+        } else {
+            eos_printout(setup.clone())
         }
     }
-    String::from("Setup is completed.")
+    String::from("There was an issue processing this option")
 }
+
 
 pub(crate) async fn handle_riotid(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     let mut data = context.data.write().await;
@@ -217,6 +236,13 @@ pub(crate) async fn handle_pick_option(context: &Context, msg: &ApplicationComma
     if let Err(err) = is_phase_allowed(context, msg, MapVeto).await {
         return err;
     }
+    {
+        let data = context.data.write().await;
+        let setup: &Setup = data.get::<Setup>().unwrap();
+        if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != StepType::Pick {
+            return String::from("It is not your turn to pick");
+        }
+    }
     if let Ok(user_role_partial) = user_team(context, msg).await {
         let mut data = context.data.write().await;
         let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
@@ -244,13 +270,13 @@ pub(crate) async fn handle_pick_option(context: &Context, msg: &ApplicationComma
                 start_attack: None,
                 start_defense: None,
             });
-            let mut resp = format!("<@&{}> picked `{}`. Maps remaining:\n", &picked_by_team.name, map);
+            let mut resp = format!("<@&{}> picked `{}`. Maps remaining:\n", &picked_by_team.id, map.to_uppercase());
             let map_str: String = setup.maps_remaining.iter().map(|map| format!("- `{}`\n", map.to_uppercase())).collect();
             resp.push_str(map_str.as_str());
             setup.current_step += 1;
             if setup.current_step >= setup.veto_pick_order.len() {
                 setup.current_phase = SidePick;
-                resp = String::from("Map veto has concluded. Teams will now pick starting sides.");
+                resp = format!("<@&{}> picked `{}`. Map veto has concluded.\n\nTeams will now pick starting sides.\n", &picked_by_team.id, map.to_uppercase());
                 setup.current_step = 0;
                 resp.push_str(format!("It is <@&{}>'s turn to pick starting side for `{}`\nUse `/attack` or `/defense` to select starting side", setup.clone().team_two.unwrap().id, setup.maps[0].map.to_uppercase()).as_str());
                 return resp;
@@ -266,11 +292,18 @@ pub(crate) async fn handle_ban_option(context: &Context, msg: &ApplicationComman
     if let Err(err) = is_phase_allowed(context, msg, MapVeto).await {
         return err;
     }
+    {
+        let data = context.data.write().await;
+        let setup: &Setup = data.get::<Setup>().unwrap();
+        if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != StepType::Veto {
+            return String::from("It is not your turn to ban");
+        }
+    }
     if let Ok(user_role_partial) = user_team(context, msg).await {
         let mut data = context.data.write().await;
         let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
         if setup.veto_pick_order.get(setup.current_step).unwrap().team.id != user_role_partial.id {
-            return String::from("It is not your turn to pick");
+            return String::from("It is not your turn to ban");
         }
         let option = msg.data
             .options
@@ -293,8 +326,8 @@ pub(crate) async fn handle_ban_option(context: &Context, msg: &ApplicationComman
             setup.current_step += 1;
             if setup.current_step >= setup.veto_pick_order.len() {
                 setup.current_phase = SidePick;
-                resp = String::from("Map veto has concluded. Teams will now pick starting sides.\n");
                 setup.current_step = 0;
+                resp = String::from("Map veto has concluded. Teams will now pick starting sides. \n");
                 resp.push_str(format!("It is <@&{}>'s turn to pick starting side for `{}`\nUse `/attack` or `/defense` to select starting side", setup.clone().team_two.unwrap().id, setup.maps[0].map.to_uppercase()).as_str());
                 return resp;
             }
