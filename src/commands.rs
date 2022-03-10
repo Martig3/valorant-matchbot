@@ -142,7 +142,7 @@ pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCo
             } else {
                 setup.clone().team_two
             };
-            let resp = format!("<@&{}> picked to `defense` on `{}`; it is now <@&{}>'s turn to pick starting side on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase(), next_pick.unwrap().id, setup.maps[setup.current_step + 1].map.to_uppercase());
+            let resp = format!("<@&{}> picked to `defense` on `{}`. It is now <@&{}>'s turn to pick starting side on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase(), next_pick.unwrap().id, setup.maps[setup.current_step + 1].map.to_uppercase());
             setup.current_step += 1;
             resp
         } else {
@@ -175,7 +175,7 @@ pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCom
             } else {
                 setup.clone().team_two
             };
-            let resp = format!("<@&{}> picked to start `attack` on `{}`; it is now <@&{}>'s turn to pick starting side on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase(), next_pick.unwrap().id, setup.maps[setup.current_step + 1].map.to_uppercase());
+            let resp = format!("<@&{}> picked to start `attack` on `{}`. It is now <@&{}>'s turn to pick starting side on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase(), next_pick.unwrap().id, setup.maps[setup.current_step + 1].map.to_uppercase());
             setup.current_step += 1;
             resp
         } else {
