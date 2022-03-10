@@ -19,18 +19,21 @@ use crate::utils::{admin_check, write_to_file, find_user_team_role, is_phase_all
 
 pub(crate) async fn handle_help(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     let mut commands = String::from("
-`/riotid` - Set your riotid i.e. `.riotid Martige#NA1`
-`/maps` - Lists all maps available for map vote
-`/setup` - Start the match setup process
-_These are commands used during the `.setup` process:_
-//TODO
+`/setup` - start user's team's next match setup
+`/schedule` - schedule match
+`/matches` - list matches
+`/maps` - list maps
+`/defense` - pick defense side during side pick phase
+`/attack`- pick attack side during side pick phase
+`/pick` - pick map during map veto phase
+`/ban` - ban map during map veto phase
+`/help` - DMs you help text
 ");
     let admin_commands = String::from("
 _These are privileged admin commands:_
-`/addmap` - Add a map to the map vote i.e. `.addmap mapname`
-`/removemap` - Remove a map from the map vote i.e. `.removemap mapname`
-`/recoverqueue` - Manually set a queue, tag all users to add after the command
-`/cancel` - Cancels `.setup` process & retains current queue
+`/addmatch` - add match to schedule
+`/deletematch`- delete match from schedule
+`/cancel` - cancel setup
     ");
     let admin_check = admin_check(context, msg).await;
     if let Ok(_result_str) = admin_check {
@@ -185,35 +188,6 @@ pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCom
         };
     }
     String::from("There was an issue processing this option")
-}
-
-
-pub(crate) async fn handle_riotid(context: &Context, msg: &ApplicationCommandInteraction) -> String {
-    let mut data = context.data.write().await;
-    let riot_id_cache: &mut HashMap<u64, String> = data.get_mut::<RiotIdCache>().unwrap();
-    let option = msg.data
-        .options
-        .get(0)
-        .expect("Expected steamid option")
-        .resolved
-        .as_ref()
-        .expect("Expected object");
-    if let ApplicationCommandInteractionDataOptionValue::String(riot_id_str) = option {
-        let riot_id_regex = Regex::new("\\w+#\\w+").unwrap();
-        if !riot_id_regex.is_match(riot_id_str) {
-            return String::from(" invalid Riot ID formatting");
-        }
-        riot_id_cache.insert(*msg.user.id.as_u64(), String::from(riot_id_str));
-        write_to_file("riot_ids.json", serde_json::to_string(riot_id_cache).unwrap()).await;
-        return MessageBuilder::new()
-            .push("Updated Riot id for ")
-            .mention(&msg.user)
-            .push(" to `")
-            .push(&riot_id_str)
-            .push("`")
-            .build();
-    }
-    String::from("Discord API error")
 }
 
 pub(crate) async fn handle_pick_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {

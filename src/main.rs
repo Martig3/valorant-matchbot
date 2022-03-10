@@ -21,7 +21,6 @@ mod utils;
 #[derive(Serialize, Deserialize)]
 struct Config {
     discord: DiscordConfig,
-    post_setup_msg: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -174,7 +173,6 @@ enum Command {
     Addmatch,
     Deletematch,
     Matches,
-    RiotID,
     Maps,
     Cancel,
     Defense,
@@ -213,7 +211,6 @@ impl FromStr for Command {
             "addmatch" => Ok(Command::Addmatch),
             "deletematch" => Ok(Command::Deletematch),
             "matches" => Ok(Command::Matches),
-            "riotid" => Ok(Command::RiotID),
             "maps" => Ok(Command::Maps),
             "cancel" => Ok(Command::Cancel),
             "defense" => Ok(Command::Defense),
@@ -262,15 +259,6 @@ impl EventHandler for Handler {
                         option
                             .name("matchid")
                             .description("Match ID")
-                            .kind(ApplicationCommandOptionType::String)
-                            .required(true)
-                    })
-                })
-                .create_application_command(|command| {
-                    command.name("riotid").description("Set your Riot ID").create_option(|option| {
-                        option
-                            .name("riotid")
-                            .description("Your Riot ID, i.e. Martige#0123")
                             .kind(ApplicationCommandOptionType::String)
                             .required(true)
                     })
