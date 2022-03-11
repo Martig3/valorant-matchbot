@@ -75,7 +75,7 @@ struct ScheduleInfo {
 struct SetupInfo {
     series_type: SeriesType,
     maps: Vec<SeriesMap>,
-    vetos: Vec<Veto>,
+    vetos: Vec<SetupStep>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -172,6 +172,7 @@ enum Command {
     Schedule,
     Addmatch,
     Deletematch,
+    Match,
     Matches,
     Maps,
     Cancel,
@@ -202,6 +203,7 @@ impl ToString for StepType {
         })
     }
 }
+
 impl FromStr for Command {
     type Err = ();
     fn from_str(input: &str) -> Result<Command, Self::Err> {
@@ -210,6 +212,7 @@ impl FromStr for Command {
             "schedule" => Ok(Command::Schedule),
             "addmatch" => Ok(Command::Addmatch),
             "deletematch" => Ok(Command::Deletematch),
+            "match" => Ok(Command::Match),
             "matches" => Ok(Command::Matches),
             "maps" => Ok(Command::Maps),
             "cancel" => Ok(Command::Cancel),
@@ -246,6 +249,15 @@ impl EventHandler for Handler {
                     command.name("help").description("DM yourself help info")
                 })
                 .create_application_command(|command| {
+                    command.name("match").description("Show matches").create_option(|option| {
+                        option
+                            .name("matchid")
+                            .description("Match ID")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                    })
+                })
+                .create_application_command(|command| {
                     command.name("matches").description("Show matches").create_option(|option| {
                         option
                             .name("displayid")
@@ -253,6 +265,13 @@ impl EventHandler for Handler {
                             .kind(ApplicationCommandOptionType::Boolean)
                             .required(false)
                     })
+                        .create_option(|option| {
+                            option
+                                .name("showcompleted")
+                                .description("Shows only completed matches")
+                                .kind(ApplicationCommandOptionType::Boolean)
+                                .required(false)
+                        })
                 })
                 .create_application_command(|command| {
                     command.name("deletematch").description("Delete match (admin required)").create_option(|option| {
@@ -365,6 +384,7 @@ impl EventHandler for Handler {
                 Command::Addmatch => commands::handle_add_match(&context, &inc_command).await,
                 Command::Deletematch => commands::handle_delete_match(&context, &inc_command).await,
                 Command::Schedule => commands::handle_schedule(&context, &inc_command).await,
+                Command::Match => commands::handle_match(&context, &inc_command).await,
                 Command::Matches => commands::handle_matches(&context, &inc_command).await,
                 Command::Maps => commands::handle_map_list(&context).await,
                 Command::Defense => commands::handle_defense_option(&context, &inc_command).await,

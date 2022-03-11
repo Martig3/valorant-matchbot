@@ -10,9 +10,10 @@ use serenity::utils::MessageBuilder;
 use uuid::Uuid;
 
 use crate::{Setup, Maps, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, SetupStep, SeriesMap, StepType};
+use crate::MatchState::Completed;
 use crate::State::{Idle, MapVeto, SidePick};
 use crate::StepType::{Pick, Veto};
-use crate::utils::{admin_check, write_to_file, find_user_team_role, is_phase_allowed, user_team, eos_printout, get_maps, reset_draft};
+use crate::utils::{admin_check, write_to_file, find_user_team_role, is_phase_allowed, user_team, eos_printout, get_maps, reset_setup, finish_setup, print_veto_info, print_match_info};
 
 
 pub(crate) async fn handle_help(context: &Context, msg: &ApplicationCommandInteraction) -> String {
@@ -65,8 +66,10 @@ pub(crate) async fn handle_setup(context: &Context, msg: &ApplicationCommandInte
             let mut data = context.data.write().await;
             let matches: &mut Vec<Match> = data.get_mut::<Matches>().unwrap();
             for m in matches.iter_mut() {
+                if m.match_state == Completed { continue; }
                 if m.team_one.id != team_role.id && m.team_two.id != team_role.id { continue; }
                 next_match = Some(m.clone());
+                break;
             }
         }
     } else {
@@ -124,8 +127,8 @@ pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCo
     if let Err(_err) = is_phase_allowed(context, msg, SidePick).await {
         return String::from("It is not the side pick phase");
     }
+    let mut resp = String::new();
     if let Ok(user_role_partial) = user_team(context, msg).await {
-        let maps = get_maps(context).await;
         let mut data = context.data.write().await;
         let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
         if setup.maps[setup.current_step].picked_by == user_role_partial {
@@ -138,31 +141,33 @@ pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCo
         } else {
             setup.clone().team_two
         };
-        return if setup.maps.len() - 1 > setup.current_step {
+        if setup.maps.len() - 1 > setup.current_step {
             let next_pick = if setup.clone().team_two.unwrap().id == setup.maps[setup.current_step + 1].picked_by.id {
                 setup.clone().team_one
             } else {
                 setup.clone().team_two
             };
-            let resp = format!("<@&{}> picked to `defense` on `{}`. It is now <@&{}>'s turn to pick starting side on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase(), next_pick.unwrap().id, setup.maps[setup.current_step + 1].map.to_uppercase());
+            resp = format!("<@&{}> picked to start `defense` on `{}`. It is now <@&{}>'s turn to pick starting side on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase(), next_pick.unwrap().id, setup.maps[setup.current_step + 1].map.to_uppercase());
             setup.current_step += 1;
-            resp
+            return resp;
         } else {
-            let mut resp = format!("<@&{}> picked to start `attack` on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase());
+            resp = format!("<@&{}> picked to start `attack` on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase());
             resp.push_str(eos_printout(setup.clone()).as_str());
-            reset_draft(setup, maps);
-            resp
         };
     }
-    String::from("There was an issue processing this option")
+    finish_setup(context).await;
+    if resp == String::new() {
+        return String::from("There was an issue processing this option");
+    }
+    resp
 }
 
 pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     if let Err(_err) = is_phase_allowed(context, msg, SidePick).await {
         return String::from("It is not the side pick phase");
     }
+    let mut resp = String::new();
     if let Ok(user_role_partial) = user_team(context, msg).await {
-        let maps = get_maps(context).await;
         let mut data = context.data.write().await;
         let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
         if setup.maps[setup.current_step].picked_by == user_role_partial {
@@ -175,23 +180,25 @@ pub(crate) async fn handle_attack_option(context: &Context, msg: &ApplicationCom
         } else {
             setup.clone().team_two
         };
-        return if setup.maps.len() - 1 > setup.current_step {
+        if setup.maps.len() - 1 > setup.current_step {
             let next_pick = if setup.clone().team_two.unwrap().id == setup.maps[setup.current_step + 1].picked_by.id {
                 setup.clone().team_one
             } else {
                 setup.clone().team_two
             };
-            let resp = format!("<@&{}> picked to start `attack` on `{}`. It is now <@&{}>'s turn to pick starting side on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase(), next_pick.unwrap().id, setup.maps[setup.current_step + 1].map.to_uppercase());
+            resp = format!("<@&{}> picked to start `attack` on `{}`. It is now <@&{}>'s turn to pick starting side on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase(), next_pick.unwrap().id, setup.maps[setup.current_step + 1].map.to_uppercase());
             setup.current_step += 1;
-            resp
+            return resp;
         } else {
-            let mut resp = format!("<@&{}> picked to start `attack` on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase());
+            resp = format!("<@&{}> picked to start `attack` on `{}`", &picked_role_id, setup.maps[setup.current_step].map.to_uppercase());
             resp.push_str(eos_printout(setup.clone()).as_str());
-            reset_draft(setup, maps);
-            resp
         };
     }
-    String::from("There was an issue processing this option")
+    finish_setup(context).await;
+    if resp == String::new() {
+        return String::from("There was an issue processing this option");
+    }
+    resp
 }
 
 
@@ -369,33 +376,70 @@ pub(crate) async fn handle_schedule(context: &Context, msg: &ApplicationCommandI
     String::from("You are not part of any team. Verify you have a role starting with `Team`")
 }
 
+pub(crate) async fn handle_match(context: &Context, msg: &ApplicationCommandInteraction) -> String {
+    let option_one = msg.data
+        .options
+        .get(0)
+        .expect("Expected match id")
+        .resolved
+        .as_ref()
+        .expect("Expected object");
+
+    if let ApplicationCommandInteractionDataOptionValue::String(match_id) = option_one {
+        let data = context.data.write().await;
+        let matches: &Vec<Match> = data.get::<Matches>().unwrap();
+        if matches.is_empty() {
+            return String::from("No matches have been added");
+        }
+        let id = Uuid::from_str(match_id);
+        if let Ok(uuid) = id {
+            let find_match = matches.iter().find(|m| m.id == uuid);
+            if let Some(m) = find_match {
+                let mut row = String::new();
+                row.push_str(print_match_info(m, false).as_str());
+                row.push_str(print_veto_info(m).as_str());
+                return row;
+            }
+        } else {
+            return String::from("Invalid match id format");
+        }
+    }
+    String::from("Discord API error")
+}
+
 pub(crate) async fn handle_matches(context: &Context, msg: &ApplicationCommandInteraction) -> String {
     let option_one = msg.data
         .options
         .get(0);
+    let option_two = msg.data
+        .options
+        .get(1);
     let data = context.data.write().await;
     let matches: &Vec<Match> = data.get::<Matches>().unwrap();
     if matches.is_empty() {
         return String::from("No matches have been added");
     }
+    let mut show_completed = false;
+    if let Some(option) = option_two {
+        if let Some(ApplicationCommandInteractionDataOptionValue::Boolean(display)) = &option.resolved {
+            show_completed = *display;
+        }
+    }
     let matches_str: String = matches.iter()
-        .filter(|m| m.match_state != MatchState::Completed)
+        .filter(|m| if show_completed {
+            m.match_state == MatchState::Completed
+        } else {
+            m.match_state != MatchState::Completed
+        })
         .map(|m| {
-            let mut schedule_str = String::new();
-            if let Some(schedule) = &m.schedule_info {
-                schedule_str = format!(" > Scheduled: `{} @ {}`", schedule.date.format("%m/%d/%Y").to_string().as_str(), schedule.time_str.as_str());
-            }
             let mut row = String::new();
-            if m.note.is_some() {
-                row.push_str(format!("- {} vs {} `{}` {}\n", m.team_one.name, m.team_two.name, m.note.clone().unwrap(), schedule_str).as_str());
-            } else {
-                row.push_str(format!("- {} vs {} {}\n", m.team_one.name, m.team_two.name, schedule_str).as_str());
-            }
+            let mut show_ids = false;
             if let Some(option) = option_one {
                 if let Some(ApplicationCommandInteractionDataOptionValue::Boolean(display)) = &option.resolved {
-                    if *display { row.push_str(format!("    Match ID: `{}`\n", m.id).as_str()) }
+                    show_ids = *display;
                 }
             }
+            row.push_str(print_match_info(m, show_ids).as_str());
             row
         })
         .collect();
@@ -491,7 +535,7 @@ pub(crate) async fn handle_cancel(context: &Context, msg: &ApplicationCommandInt
     if draft.current_phase == Idle {
         return String::from(" command only valid during `/setup` process");
     }
-    reset_draft(draft, maps);
+    reset_setup(draft, maps);
     String::from("`/setup` process cancelled.")
 }
 

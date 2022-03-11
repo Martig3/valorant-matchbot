@@ -1,8 +1,10 @@
 use serenity::model::prelude::{GuildContainer, Role, RoleId, User};
-use serenity::model::prelude::application_command::ApplicationCommandInteraction;
+use serenity::model::prelude::application_command::{ApplicationCommandInteraction};
 use serenity::prelude::Context;
 use serenity::utils::MessageBuilder;
-use crate::{Bo3, Config, Maps, RolePartial, Setup, State};
+use crate::{Bo3, Config, Maps, Match, Matches, RolePartial, Setup, SetupInfo, State};
+use crate::MatchState::Completed;
+use crate::StepType::Veto;
 
 pub(crate) async fn write_to_file(path: &str, content: String) {
     let mut error_string = String::from("Error writing to ");
@@ -76,6 +78,60 @@ pub(crate) async fn get_maps(context: &Context) -> Vec<String> {
     maps.clone()
 }
 
+pub(crate) async fn finish_setup(context: &Context) {
+    let maps = get_maps(context).await;
+    {
+        let mut data = context.data.write().await;
+        let setup_final: Setup = data.get::<Setup>().unwrap().clone();
+        if let Some(matches) = data.get_mut::<Matches>() {
+            let match_index = matches.iter().position(|m| m.id == setup_final.match_id.unwrap());
+            matches[match_index.unwrap()].setup_info = Some(SetupInfo { series_type: setup_final.series_type, maps: setup_final.maps, vetos: setup_final.veto_pick_order });
+            matches[match_index.unwrap()].match_state = Completed;
+            write_to_file("matches.json", serde_json::to_string_pretty(&matches).unwrap()).await;
+        }
+    }
+    {
+        let mut data = context.data.write().await;
+        let setup: &mut Setup = data.get_mut::<Setup>().unwrap();
+        reset_setup(setup, maps);
+    }
+}
+
+
+pub(crate) fn print_veto_info(m: &Match) -> String {
+    if m.setup_info.is_none() || m.setup_info.clone().unwrap().vetos.is_empty() {
+        return String::from("This match has no veto info yet");
+    }
+    let mut resp = String::from("```diff\n");
+    let veto: String = m.setup_info.clone().unwrap().vetos.iter()
+        .map(|v| {
+            let mut veto_str = String::new();
+            if v.step_type == Veto {
+                veto_str.push_str(format!("- {} banned {}\n", v.team.name, v.map.clone().unwrap().to_uppercase()).as_str());
+            } else {
+                veto_str.push_str(format!("+ {} picked {}\n", v.team.name, v.map.clone().unwrap().to_uppercase()).as_str());
+            }
+            veto_str
+        }).collect();
+    resp.push_str(veto.as_str());
+    resp.push_str("```");
+    resp
+}
+
+pub(crate) fn print_match_info(m: &Match, show_id: bool) -> String {
+    let mut schedule_str = String::new();
+    if let Some(schedule) = &m.schedule_info {
+        schedule_str = format!(" > Scheduled: `{} @ {}`", schedule.date.format("%m/%d/%Y").to_string().as_str(), schedule.time_str.as_str());
+    }
+    let mut row = String::new();
+    row.push_str(format!("- {} vs {}{}", m.team_one.name, m.team_two.name, schedule_str).as_str());
+    if m.note.is_some() {
+        row.push_str(format!(" `{}`", m.note.clone().unwrap()).as_str());
+    }
+    row.push('\n');
+    if show_id { row.push_str(format!("    Match ID: `{}\n`", m.id).as_str()) }
+    row
+}
 
 pub(crate) fn eos_printout(setup: Setup) -> String {
     let mut resp = String::from("\n\nSetup is completed. GLHF!\n\n");
@@ -85,7 +141,7 @@ pub(crate) fn eos_printout(setup: Setup) -> String {
     resp
 }
 
-pub(crate) fn reset_draft(setup: &mut Setup, maps: Vec<String>) {
+pub(crate) fn reset_setup(setup: &mut Setup, maps: Vec<String>) {
     setup.team_one = None;
     setup.team_two = None;
     setup.maps = Vec::new();
