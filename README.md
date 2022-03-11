@@ -4,7 +4,10 @@ Simple Discord bot for managing & organizing team matches
 
 ## Features
 
-// TODO
+- Add matches to schedule
+- Schedule matches
+- Bo1, Bo3, Bo5 series map veto setup
+- Match setup history
 
 ### Example Screenshots
 
@@ -35,6 +38,14 @@ Simple Discord bot for managing & organizing team matches
 `/ban` - ban map during map veto phase
 
 `/help` - DMs you help text
+
+_These are privileged admin commands:_
+
+`/addmatch` - add match to schedule
+
+`/deletematch`- delete match from schedule
+
+`/cancel` - cancel setup
 
 ### Setup
 
