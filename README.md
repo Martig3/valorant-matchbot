@@ -17,11 +17,7 @@ Simple Discord bot for managing & organizing team matches
 
 `/setup` - start user's team's next match setup
 
-`/addmatch` - add match to schedule
-
 `/schedule` - schedule match
-
-`/deletematch`- delete match from schedule
 
 `/matches` - list matches
 
