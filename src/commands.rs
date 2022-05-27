@@ -224,7 +224,7 @@ pub(crate) async fn handle_pick_option(context: &Context, msg: &ApplicationComma
     {
         let data = context.data.write().await;
         let setup: &Setup = data.get::<Setup>().unwrap();
-        if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != StepType::Pick {
+        if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != Pick {
             return String::from("It is not your turn to pick");
         }
     }
@@ -280,7 +280,7 @@ pub(crate) async fn handle_ban_option(context: &Context, msg: &ApplicationComman
     {
         let data = context.data.write().await;
         let setup: &Setup = data.get::<Setup>().unwrap();
-        if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != StepType::Veto {
+        if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != Veto {
             return String::from("It is not your turn to ban");
         }
     }
@@ -442,9 +442,9 @@ pub(crate) async fn handle_matches(context: &Context, msg: &ApplicationCommandIn
     }
     let matches_str: String = matches.iter()
         .filter(|m| if show_completed {
-            m.match_state == MatchState::Completed
+            m.match_state == Completed
         } else {
-            m.match_state != MatchState::Completed
+            m.match_state != Completed
         })
         .map(|m| {
             let mut row = String::new();
