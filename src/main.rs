@@ -27,7 +27,6 @@ struct Config {
 struct DiscordConfig {
     token: String,
     admin_role_id: Option<u64>,
-    channel_id: Option<u64>,
     application_id: u64,
     guild_id: u64,
 }
@@ -369,16 +368,6 @@ impl EventHandler for Handler {
     async fn interaction_create(&self, context: Context, interaction: Interaction) {
         if let Interaction::ApplicationCommand(inc_command) = interaction {
             let command = Command::from_str(&inc_command.data.name.as_str().to_lowercase()).expect("Expected valid command");
-            {
-                let data = context.data.write().await;
-                let config: &Config = data.get::<Config>().unwrap();
-                let content = String::from("Please use the assigned channel for bot commands");
-                if &config.discord.channel_id.unwrap() != inc_command.channel_id.as_u64() {
-                    if let Err(why) = create_int_resp(&context, &inc_command, content).await {
-                        eprintln!("Cannot respond to slash command: {}", why);
-                    }
-                }
-            }
             let content: String = match command {
                 Command::Setup => commands::handle_setup(&context, &inc_command).await,
                 Command::Addmatch => commands::handle_add_match(&context, &inc_command).await,

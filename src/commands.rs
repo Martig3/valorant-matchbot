@@ -9,7 +9,7 @@ use serenity::model::prelude::Role;
 use serenity::utils::MessageBuilder;
 use uuid::Uuid;
 
-use crate::{Setup, Maps, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, SetupStep, SeriesMap, StepType};
+use crate::{Setup, Maps, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, SetupStep, SeriesMap};
 use crate::MatchState::Completed;
 use crate::State::{Idle, MapVeto, SidePick};
 use crate::StepType::{Pick, Veto};
@@ -104,8 +104,15 @@ pub(crate) async fn handle_setup(context: &Context, msg: &ApplicationCommandInte
     String::from("Setup encountered an error")
 }
 
-pub(crate) async fn handle_bo1_setup(_msg: &ApplicationCommandInteraction, _setup: Setup) -> (Vec<SetupStep>, String) {
-    (Vec::new(), String::from("This option has not been implemented"))
+pub(crate) async fn handle_bo1_setup(_msg: &ApplicationCommandInteraction, setup: Setup) -> (Vec<SetupStep>, String) {
+    return (vec![
+        SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
+    ], format!("Best of 1 option selected. Starting map veto. <@&{}> bans first.\n", &setup.team_one.unwrap().id));
 }
 
 pub(crate) async fn handle_bo3_setup(_msg: &ApplicationCommandInteraction, setup: Setup) -> (Vec<SetupStep>, String) {
@@ -119,8 +126,16 @@ pub(crate) async fn handle_bo3_setup(_msg: &ApplicationCommandInteraction, setup
     ], format!("Best of 3 option selected. Starting map veto. <@&{}> bans first.\n", &setup.team_one.unwrap().id));
 }
 
-pub(crate) async fn handle_bo5_setup(_msg: &ApplicationCommandInteraction, _setup: Setup) -> (Vec<SetupStep>, String) {
-    (Vec::new(), String::from("This option has not been implemented"))
+pub(crate) async fn handle_bo5_setup(_msg: &ApplicationCommandInteraction, setup: Setup) -> (Vec<SetupStep>, String) {
+    return (vec![
+        SetupStep { step_type: Veto, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
+    ], format!("Best of 5 option selected. Starting map veto. <@&{}> bans first.\n", &setup.team_one.unwrap().id));
 }
 
 pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {
@@ -209,7 +224,7 @@ pub(crate) async fn handle_pick_option(context: &Context, msg: &ApplicationComma
     {
         let data = context.data.write().await;
         let setup: &Setup = data.get::<Setup>().unwrap();
-        if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != StepType::Pick {
+        if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != Pick {
             return String::from("It is not your turn to pick");
         }
     }
@@ -265,7 +280,7 @@ pub(crate) async fn handle_ban_option(context: &Context, msg: &ApplicationComman
     {
         let data = context.data.write().await;
         let setup: &Setup = data.get::<Setup>().unwrap();
-        if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != StepType::Veto {
+        if setup.veto_pick_order.get(setup.current_step).unwrap().step_type != Veto {
             return String::from("It is not your turn to ban");
         }
     }
@@ -427,9 +442,9 @@ pub(crate) async fn handle_matches(context: &Context, msg: &ApplicationCommandIn
     }
     let matches_str: String = matches.iter()
         .filter(|m| if show_completed {
-            m.match_state == MatchState::Completed
+            m.match_state == Completed
         } else {
-            m.match_state != MatchState::Completed
+            m.match_state != Completed
         })
         .map(|m| {
             let mut row = String::new();
