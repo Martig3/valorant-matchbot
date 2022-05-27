@@ -288,6 +288,7 @@ impl EventHandler for Handler {
                             .description("Series Type")
                             .kind(ApplicationCommandOptionType::String)
                             .required(true)
+                            .add_string_choice("Best of 1", "bo1")
                             .add_string_choice("Best of 3", "bo3")
                             .add_string_choice("Best of 5", "bo5")
                     })
