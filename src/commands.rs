@@ -104,8 +104,15 @@ pub(crate) async fn handle_setup(context: &Context, msg: &ApplicationCommandInte
     String::from("Setup encountered an error")
 }
 
-pub(crate) async fn handle_bo1_setup(_msg: &ApplicationCommandInteraction, _setup: Setup) -> (Vec<SetupStep>, String) {
-    (Vec::new(), String::from("This option has not been implemented"))
+pub(crate) async fn handle_bo1_setup(_msg: &ApplicationCommandInteraction, setup: Setup) -> (Vec<SetupStep>, String) {
+    return (vec![
+        SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
+    ], format!("Best of 1 option selected. Starting map veto. <@&{}> bans first.\n", &setup.team_one.unwrap().id));
 }
 
 pub(crate) async fn handle_bo3_setup(_msg: &ApplicationCommandInteraction, setup: Setup) -> (Vec<SetupStep>, String) {
@@ -119,8 +126,16 @@ pub(crate) async fn handle_bo3_setup(_msg: &ApplicationCommandInteraction, setup
     ], format!("Best of 3 option selected. Starting map veto. <@&{}> bans first.\n", &setup.team_one.unwrap().id));
 }
 
-pub(crate) async fn handle_bo5_setup(_msg: &ApplicationCommandInteraction, _setup: Setup) -> (Vec<SetupStep>, String) {
-    (Vec::new(), String::from("This option has not been implemented"))
+pub(crate) async fn handle_bo5_setup(_msg: &ApplicationCommandInteraction, setup: Setup) -> (Vec<SetupStep>, String) {
+    return (vec![
+        SetupStep { step_type: Veto, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Veto, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_two.unwrap(), map: None },
+        SetupStep { step_type: Pick, team: setup.clone().team_one.unwrap(), map: None },
+    ], format!("Best of 5 option selected. Starting map veto. <@&{}> bans first.\n", &setup.team_one.unwrap().id));
 }
 
 pub(crate) async fn handle_defense_option(context: &Context, msg: &ApplicationCommandInteraction) -> String {
