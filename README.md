@@ -45,9 +45,13 @@ _These are privileged admin commands:_
 
 ### Setup
 
-No CI/CD yet so clone the repo, create a `config.yaml` file (see example below) and run using standard `cargo run`
+Download the latest release and place it inside a new folder. Inside this folder create a config.yaml file.
 
-**Note:** Make sure to only allow the bot to listen/read messages in one channel only.
+Note: Channel & role ids can be found by enabling discord developer mode.
+
+Start the bot via appropriate release binary (or clone & build yourself if you want) and navigate to the following url - make sure to insert your bot's client id in this url - to add the bot to your server: `https://discord.com/api/oauth2/authorize?client_id=<your_bot_clientid>&permissions=16780352&scope=bot`
+
+Note: Make sure to only allow the bot to read messages from one channel under Server Settings -> Integrations
 
 ### Example config.yaml
 
