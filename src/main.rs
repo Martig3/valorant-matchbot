@@ -1,35 +1,34 @@
-use core::time::Duration as CoreDuration;
 use std::collections::HashMap;
 use std::str::FromStr;
+use chrono::{DateTime, NaiveDate, Utc};
 
-use async_std::task;
-use chrono::{Datelike, DateTime, Duration as ChronoDuration, Local, TimeZone};
+
 use serde::{Deserialize, Serialize};
 use serenity::async_trait;
 use serenity::Client;
 use serenity::client::Context;
 use serenity::framework::standard::StandardFramework;
-use serenity::model::channel::Message;
-use serenity::model::prelude::Ready;
-use serenity::model::user::User;
+use serenity::model::guild::Role;
+use serenity::model::prelude::{GuildId, Interaction, InteractionResponseType, Ready, RoleId};
+use serenity::model::prelude::application_command::{ApplicationCommandInteraction, ApplicationCommandOptionType};
 use serenity::prelude::{EventHandler, TypeMapKey};
+use uuid::Uuid;
+use crate::SeriesType::{Bo1, Bo3, Bo5};
 
-mod bot_service;
+mod commands;
+mod utils;
 
 #[derive(Serialize, Deserialize)]
 struct Config {
     discord: DiscordConfig,
-    autoclear_hour: Option<u32>,
-    post_setup_msg: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct DiscordConfig {
     token: String,
     admin_role_id: Option<u64>,
-    team_a_channel_id: Option<u64>,
-    team_b_channel_id: Option<u64>,
-    assign_role_id: Option<u64>,
+    application_id: u64,
+    guild_id: u64,
 }
 
 #[derive(PartialEq)]
@@ -37,53 +36,117 @@ struct StateContainer {
     state: State,
 }
 
-struct Draft {
-    captain_a: Option<User>,
-    captain_b: Option<User>,
-    team_a: Vec<User>,
-    team_b: Vec<User>,
-    team_b_start_side: String,
-    current_picker: Option<User>,
+#[derive(Clone, Serialize, Deserialize)]
+struct SeriesMap {
+    map: String,
+    picked_by: RolePartial,
+    start_attack: Option<RolePartial>,
+    start_defense: Option<RolePartial>,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Serialize, Deserialize)]
+struct Veto {
+    map: String,
+    vetoed_by: Role,
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+enum MatchState {
+    Entered,
+    Scheduled,
+    Completed,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+struct RolePartial {
+    id: RoleId,
+    name: String,
+    guild_id: GuildId,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct ScheduleInfo {
+    date: NaiveDate,
+    time_str: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct SetupInfo {
+    series_type: SeriesType,
+    maps: Vec<SeriesMap>,
+    vetos: Vec<SetupStep>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Match {
+    id: Uuid,
+    team_one: RolePartial,
+    team_two: RolePartial,
+    note: Option<String>,
+    date_added: DateTime<Utc>,
+    match_state: MatchState,
+    schedule_info: Option<ScheduleInfo>,
+    setup_info: Option<SetupInfo>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+enum SeriesType {
+    Bo1,
+    Bo3,
+    Bo5,
+}
+
+#[derive(PartialEq, Clone, Serialize, Deserialize)]
+enum StepType {
+    Veto,
+    Pick,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct SetupStep {
+    step_type: StepType,
+    team: RolePartial,
+    map: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Setup {
+    team_one: Option<RolePartial>,
+    team_two: Option<RolePartial>,
+    maps_remaining: Vec<String>,
+    maps: Vec<SeriesMap>,
+    vetos: Vec<Veto>,
+    series_type: SeriesType,
+    match_id: Option<Uuid>,
+    veto_pick_order: Vec<SetupStep>,
+    current_step: usize,
+    current_phase: State,
+}
+
+#[derive(PartialEq, Serialize, Deserialize, Clone)]
 enum State {
-    Queue,
-    MapPick,
-    CaptainPick,
-    Draft,
+    Idle,
+    MapVeto,
     SidePick,
-    Ready,
+    Setup,
 }
 
 struct Handler;
 
-struct UserQueue;
-
 struct RiotIdCache;
-
-struct TeamNameCache;
-
-struct QueueMessages;
 
 struct BotState;
 
 struct Maps;
 
+struct Matches;
 
-impl TypeMapKey for UserQueue {
-    type Value = Vec<User>;
-}
 
 impl TypeMapKey for Config {
     type Value = Config;
 }
 
 impl TypeMapKey for RiotIdCache {
-    type Value = HashMap<u64, String>;
-}
-
-impl TypeMapKey for TeamNameCache {
     type Value = HashMap<u64, String>;
 }
 
@@ -95,59 +158,68 @@ impl TypeMapKey for Maps {
     type Value = Vec<String>;
 }
 
-impl TypeMapKey for Draft {
-    type Value = Draft;
+impl TypeMapKey for Setup {
+    type Value = Setup;
 }
 
-impl TypeMapKey for QueueMessages {
-    type Value = HashMap<u64, String>;
+impl TypeMapKey for Matches {
+    type Value = Vec<Match>;
 }
 
 enum Command {
-    JOIN,
-    LEAVE,
-    QUEUE,
-    START,
-    RIOTID,
-    MAPS,
-    ADDMAP,
-    CANCEL,
-    REMOVEMAP,
-    KICK,
-    CAPTAIN,
-    TEAMNAME,
-    PICK,
-    DEFENSE,
-    ATTACK,
-    RECOVERQUEUE,
-    CLEAR,
-    HELP,
-    UNKNOWN,
+    Setup,
+    Schedule,
+    Addmatch,
+    Deletematch,
+    Match,
+    Matches,
+    Maps,
+    Cancel,
+    Defense,
+    Attack,
+    Pick,
+    Ban,
+    Help,
+}
+
+impl FromStr for SeriesType {
+    type Err = ();
+    fn from_str(input: &str) -> Result<SeriesType, Self::Err> {
+        match input {
+            "bo1" => Ok(Bo1),
+            "bo3" => Ok(Bo3),
+            "bo5" => Ok(Bo5),
+            _ => Err(()),
+        }
+    }
+}
+
+impl ToString for StepType {
+    fn to_string(&self) -> String {
+        String::from(match &self {
+            StepType::Veto => "/ban",
+            StepType::Pick => "/pick",
+        })
+    }
 }
 
 impl FromStr for Command {
     type Err = ();
     fn from_str(input: &str) -> Result<Command, Self::Err> {
         match input {
-            "." => Ok(Command::UNKNOWN),
-            _ if ".join".starts_with(input) => Ok(Command::JOIN),
-            _ if ".leave".starts_with(input) => Ok(Command::LEAVE),
-            _ if ".queue".starts_with(input) => Ok(Command::QUEUE),
-            ".start" => Ok(Command::START),
-            ".riotid" => Ok(Command::RIOTID),
-            ".maps" => Ok(Command::MAPS),
-            ".kick" => Ok(Command::KICK),
-            ".addmap" => Ok(Command::ADDMAP),
-            ".cancel" => Ok(Command::CANCEL),
-            ".captain" => Ok(Command::CAPTAIN),
-            ".teamname" => Ok(Command::TEAMNAME),
-            ".pick" => Ok(Command::PICK),
-            ".defense" => Ok(Command::DEFENSE),
-            ".attack" => Ok(Command::ATTACK),
-            ".removemap" => Ok(Command::REMOVEMAP),
-            ".recoverqueue" => Ok(Command::RECOVERQUEUE),
-            ".clear" => Ok(Command::CLEAR),
-            ".help" => Ok(Command::HELP),
+            "setup" => Ok(Command::Setup),
+            "schedule" => Ok(Command::Schedule),
+            "addmatch" => Ok(Command::Addmatch),
+            "deletematch" => Ok(Command::Deletematch),
+            "match" => Ok(Command::Match),
+            "matches" => Ok(Command::Matches),
+            "maps" => Ok(Command::Maps),
+            "cancel" => Ok(Command::Cancel),
+            "defense" => Ok(Command::Defense),
+            "attack" => Ok(Command::Attack),
+            "pick" => Ok(Command::Pick),
+            "ban" => Ok(Command::Ban),
+            "help" => Ok(Command::Help),
             _ => Err(()),
         }
     }
@@ -155,69 +227,207 @@ impl FromStr for Command {
 
 #[async_trait]
 impl EventHandler for Handler {
-    async fn message(&self, context: Context, msg: Message) {
-        if msg.author.bot { return; }
-        if !msg.content.starts_with('.') { return; }
-        let command = Command::from_str(&msg.content.to_lowercase()
-            .trim()
-            .split(' ')
-            .take(1)
-            .collect::<Vec<_>>()[0])
-            .unwrap_or(Command::UNKNOWN);
-        match command {
-            Command::JOIN => bot_service::handle_join(&context, &msg, &msg.author).await,
-            Command::LEAVE => bot_service::handle_leave(context, msg).await,
-            Command::QUEUE => bot_service::handle_list(context, msg).await,
-            Command::START => bot_service::handle_start(context, msg).await,
-            Command::RIOTID => bot_service::handle_riotid(context, msg).await,
-            Command::MAPS => bot_service::handle_map_list(context, msg).await,
-            Command::KICK => bot_service::handle_kick(context, msg).await,
-            Command::CANCEL => bot_service::handle_cancel(context, msg).await,
-            Command::ADDMAP => bot_service::handle_add_map(context, msg).await,
-            Command::REMOVEMAP => bot_service::handle_remove_map(context, msg).await,
-            Command::TEAMNAME => bot_service::handle_teamname(context, msg).await,
-            Command::CAPTAIN => bot_service::handle_captain(context, msg).await,
-            Command::PICK => bot_service::handle_pick(context, msg).await,
-            Command::DEFENSE => bot_service::handle_defense_option(context, msg).await,
-            Command::ATTACK => bot_service::handle_attack_option(context, msg).await,
-            Command::RECOVERQUEUE => bot_service::handle_recover_queue(context, msg).await,
-            Command::CLEAR => bot_service::handle_clear(context, msg).await,
-            Command::HELP => bot_service::handle_help(context, msg).await,
-            Command::UNKNOWN => bot_service::handle_unknown(context, msg).await,
-        }
-    }
     async fn ready(&self, context: Context, ready: Ready) {
+        let config = read_config().await.unwrap();
+        let guild_id = GuildId(config.discord.guild_id);
+        let commands = GuildId::set_application_commands(&guild_id, &context.http, |commands| {
+            return commands
+                .create_application_command(|command| {
+                    command.name("maps").description("Lists the current map pool")
+                })
+                .create_application_command(|command| {
+                    command.name("cancel").description("Cancels setup (requires admin)")
+                })
+                .create_application_command(|command| {
+                    command.name("attack").description("Select attack starting side")
+                })
+                .create_application_command(|command| {
+                    command.name("defense").description("Select defense starting side")
+                })
+                .create_application_command(|command| {
+                    command.name("help").description("DM yourself help info")
+                })
+                .create_application_command(|command| {
+                    command.name("match").description("Show matches").create_option(|option| {
+                        option
+                            .name("matchid")
+                            .description("Match ID")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("matches").description("Show matches").create_option(|option| {
+                        option
+                            .name("displayid")
+                            .description("Display match IDs")
+                            .kind(ApplicationCommandOptionType::Boolean)
+                            .required(false)
+                    })
+                        .create_option(|option| {
+                            option
+                                .name("showcompleted")
+                                .description("Shows only completed matches")
+                                .kind(ApplicationCommandOptionType::Boolean)
+                                .required(false)
+                        })
+                })
+                .create_application_command(|command| {
+                    command.name("deletematch").description("Delete match (admin required)").create_option(|option| {
+                        option
+                            .name("matchid")
+                            .description("Match ID")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("setup").description("Setup your next match").create_option(|option| {
+                        option
+                            .name("type")
+                            .description("Series Type")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                            .add_string_choice("Best of 3", "bo3")
+                            .add_string_choice("Best of 5", "bo5")
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("pick").description("Pick a map during the map veto").create_option(|option| {
+                        option
+                            .name("map")
+                            .description("Map name")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                            .add_string_choice("Ascent", "ascent")
+                            .add_string_choice("Bind", "bind")
+                            .add_string_choice("Breeze", "breeze")
+                            .add_string_choice("Fracture", "fracture")
+                            .add_string_choice("Haven", "haven")
+                            .add_string_choice("Icebox", "icebox")
+                            .add_string_choice("Split", "split")
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("ban").description("Ban a map during the map veto").create_option(|option| {
+                        option
+                            .name("map")
+                            .description("Map name")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                            .add_string_choice("Ascent", "ascent")
+                            .add_string_choice("Bind", "bind")
+                            .add_string_choice("Breeze", "breeze")
+                            .add_string_choice("Fracture", "fracture")
+                            .add_string_choice("Haven", "haven")
+                            .add_string_choice("Icebox", "icebox")
+                            .add_string_choice("Split", "split")
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("addmatch").description("Add match to schedule (admin required)").create_option(|option| {
+                        option
+                            .name("teamone")
+                            .description("Team 1 (Home)")
+                            .kind(ApplicationCommandOptionType::Role)
+                            .required(true)
+                    }).create_option(|option| {
+                        option
+                            .name("teamtwo")
+                            .description("Team 2 (Away)")
+                            .kind(ApplicationCommandOptionType::Role)
+                            .required(true)
+                    }).create_option(|option| {
+                        option
+                            .name("note")
+                            .description("Note")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(false)
+                    })
+                })
+                .create_application_command(|command| {
+                    command.name("schedule").description("Schedule your next match").create_option(|option| {
+                        option
+                            .name("date")
+                            .description("Date (Month/Day/Year)")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                    }).create_option(|option| {
+                        option
+                            .name("time")
+                            .description("Time (include timezone) i.e. 10EST")
+                            .kind(ApplicationCommandOptionType::String)
+                            .required(true)
+                    })
+                })
+            ;
+        }).await;
         println!("{} is connected!", ready.user.name);
-        autoclear_queue(&context).await;
+        println!("Added these guild slash commands: {:#?}", commands);
+    }
+    async fn interaction_create(&self, context: Context, interaction: Interaction) {
+        if let Interaction::ApplicationCommand(inc_command) = interaction {
+            let command = Command::from_str(&inc_command.data.name.as_str().to_lowercase()).expect("Expected valid command");
+            let content: String = match command {
+                Command::Setup => commands::handle_setup(&context, &inc_command).await,
+                Command::Addmatch => commands::handle_add_match(&context, &inc_command).await,
+                Command::Deletematch => commands::handle_delete_match(&context, &inc_command).await,
+                Command::Schedule => commands::handle_schedule(&context, &inc_command).await,
+                Command::Match => commands::handle_match(&context, &inc_command).await,
+                Command::Matches => commands::handle_matches(&context, &inc_command).await,
+                Command::Maps => commands::handle_map_list(&context).await,
+                Command::Defense => commands::handle_defense_option(&context, &inc_command).await,
+                Command::Attack => commands::handle_attack_option(&context, &inc_command).await,
+                Command::Pick => commands::handle_pick_option(&context, &inc_command).await,
+                Command::Ban => commands::handle_ban_option(&context, &inc_command).await,
+                Command::Cancel => commands::handle_cancel(&context, &inc_command).await,
+                Command::Help => commands::handle_help(&context, &inc_command).await,
+            };
+            if let Err(why) = create_int_resp(&context, &inc_command, content).await {
+                eprintln!("Cannot respond to slash command: {}", why);
+            }
+        }
     }
 }
 
+async fn create_int_resp(context: &Context, inc_command: &ApplicationCommandInteraction, content: String) -> serenity::Result<()> {
+    return inc_command
+        .create_interaction_response(&context.http, |response| {
+            response
+                .kind(InteractionResponseType::ChannelMessageWithSource)
+                .interaction_response_data(|message| message.content(content))
+        }).await;
+}
+
 #[tokio::main]
-async fn main() -> () {
+async fn main() {
     let config = read_config().await.unwrap();
     let token = &config.discord.token;
     let framework = StandardFramework::new();
     let mut client = Client::builder(&token)
         .event_handler(Handler {})
         .framework(framework)
+        .application_id(config.discord.application_id)
         .await
         .expect("Error creating client");
     {
         let mut data = client.data.write().await;
-        data.insert::<UserQueue>(Vec::new());
-        data.insert::<QueueMessages>(HashMap::new());
         data.insert::<Config>(config);
         data.insert::<RiotIdCache>(read_riot_ids().await.unwrap());
-        data.insert::<TeamNameCache>(read_teamnames().await.unwrap());
-        data.insert::<BotState>(StateContainer { state: State::Queue });
+        data.insert::<BotState>(StateContainer { state: State::Idle });
         data.insert::<Maps>(read_maps().await.unwrap());
-        data.insert::<Draft>(Draft {
-            captain_a: None,
-            captain_b: None,
-            current_picker: None,
-            team_a: Vec::new(),
-            team_b: Vec::new(),
-            team_b_start_side: String::from(""),
+        data.insert::<Matches>(read_matches().await.unwrap());
+        data.insert::<Setup>(Setup {
+            team_one: None,
+            team_two: None,
+            maps: Vec::new(),
+            vetos: Vec::new(),
+            maps_remaining: read_maps().await.unwrap(),
+            series_type: Bo3,
+            match_id: None,
+            veto_pick_order: Vec::new(),
+            current_step: 0,
+            current_phase: State::Idle,
         });
     }
     if let Err(why) = client.start().await {
@@ -241,16 +451,6 @@ async fn read_riot_ids() -> Result<HashMap<u64, String>, serde_json::Error> {
     }
 }
 
-async fn read_teamnames() -> Result<HashMap<u64, String>, serde_json::Error> {
-    if std::fs::read("teamnames.json").is_ok() {
-        let json_str = std::fs::read_to_string("teamnames.json").unwrap();
-        let json = serde_json::from_str(&json_str).unwrap();
-        Ok(json)
-    } else {
-        Ok(HashMap::new())
-    }
-}
-
 async fn read_maps() -> Result<Vec<String>, serde_json::Error> {
     if std::fs::read("maps.json").is_ok() {
         let json_str = std::fs::read_to_string("maps.json").unwrap();
@@ -261,30 +461,14 @@ async fn read_maps() -> Result<Vec<String>, serde_json::Error> {
     }
 }
 
-async fn autoclear_queue(context: &Context) {
-    let autoclear_hour_prop = get_autoclear_hour(context).await;
-    if let Some(autoclear_hour) = autoclear_hour_prop {
-        println!("Autoclear feature started");
-        loop {
-            let current: DateTime<Local> = Local::now();
-            let mut autoclear: DateTime<Local> = Local.ymd(current.year(), current.month(), current.day())
-                .and_hms(autoclear_hour, 0, 0);
-            if autoclear.signed_duration_since(current).num_milliseconds() < 0 { autoclear = autoclear + ChronoDuration::days(1) }
-            let time_between: ChronoDuration = autoclear.signed_duration_since(current);
-            task::sleep(CoreDuration::from_millis(time_between.num_milliseconds() as u64)).await;
-            {
-                let mut data = context.data.write().await;
-                let user_queue: &mut Vec<User> = &mut data.get_mut::<UserQueue>().unwrap();
-                user_queue.clear();
-                let queued_msgs: &mut HashMap<u64, String> = data.get_mut::<QueueMessages>().unwrap();
-                queued_msgs.clear();
-            }
-        }
+async fn read_matches() -> Result<Vec<Match>, serde_json::Error> {
+    if std::fs::read("matches.json").is_ok() {
+        let json_str = std::fs::read_to_string("matches.json").unwrap();
+        let json = serde_json::from_str(&json_str).unwrap();
+        Ok(json)
+    } else {
+        Ok(Vec::new())
     }
 }
 
-async fn get_autoclear_hour(client: &Context) -> Option<u32> {
-    let data = client.data.write().await;
-    let config: &Config = &data.get::<Config>().unwrap();
-    config.autoclear_hour
-}
+
