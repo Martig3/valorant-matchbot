@@ -9,7 +9,7 @@ use serenity::model::prelude::Role;
 use serenity::utils::MessageBuilder;
 use uuid::Uuid;
 
-use crate::{Setup, Maps, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, SetupStep, SeriesMap, StepType};
+use crate::{Setup, Maps, Match, Matches, MatchState, RolePartial, ScheduleInfo, SeriesType, SetupStep, SeriesMap};
 use crate::MatchState::Completed;
 use crate::State::{Idle, MapVeto, SidePick};
 use crate::StepType::{Pick, Veto};
